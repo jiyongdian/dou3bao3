@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# Runtime data and secrets
+data/
+*.log
+*.sqlite
+*.db
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Playwright / test artifacts
+playwright-report/
+test-results/
+
+# Build outputs
+bin/
+obj/
+dist/
+ffmpeg/
+
+# Large local binaries
+*.exe
+*.pdb
+*.dll
+*.zip

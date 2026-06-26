@@ -1,0 +1,16 @@
+{
+  "api_token": "",
+  "host": "0.0.0.0",
+  "port": 8088,
+  "browser_workers": 2,
+  "browser_executable_path": "",
+  "headless": true,
+  "task_timeout_seconds": 180,
+  "video_duration": 15,
+  "max_image_count": 9,
+  "proxy_api_url": "https://example.com/get-proxy?num=1&type=txt",
+  "proxy_api_scheme": "http",
+  "proxy_api_timeout_seconds": 20,
+  "reclaim_memory_after_task": true,
+  "drop_os_cache_when_idle": false
+}
