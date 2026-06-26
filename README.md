@@ -20,21 +20,7 @@ cd /opt/dola-fetch-service
 bash scripts/install.sh
 ```
 
-项目已上传到服务器时：
-
-```bash
-cd /opt/dola-fetch-service
-bash scripts/install.sh
-```
-
-直接用 GitHub 压缩包安装：
-
-```bash
-REPO_ZIP_URL="https://github.com/DaFangYue/dola_fetch_service/archive/refs/heads/main.zip" \
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/DaFangYue/dola_fetch_service/main/scripts/install.sh)"
-```
-
-安装完成后：
+安装完成后窗口提示：
 
 ```text
 安装成功
@@ -115,12 +101,6 @@ http://127.0.0.1:8088/admin
 
 ```text
 /var/lib/dola-fetch-service/config.json
-```
-
-Windows 本地开发默认保存在：
-
-```text
-data/config.json
 ```
 
 可以参考 `config.example.json`：
@@ -211,13 +191,3 @@ python scripts/deploy_server.py
 
 部署脚本会跳过 `.venv`、`data`、`__pycache__` 和大二进制文件。
 
-## 发布 GitHub 前注意
-
-不要提交：
-
-- `data/`
-- `.venv/`
-- 生成的 API Token
-- 真实代理商 API 地址和 key
-
-仓库已配置 `.gitignore` 来排除这些文件。
