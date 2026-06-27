@@ -11,23 +11,11 @@
 - Debian / Ubuntu
 - CentOS / RHEL / Rocky / AlmaLinux
 
-公开仓库一键安装：
+一键安装：
 
 ```bash
 bash <(curl -fsSL "https://raw.githubusercontent.com/DaFangYue/dola_fetch_service/main/scripts/install.sh")
 ```
-
-私有仓库一键安装：
-
-```bash
-export GITHUB_TOKEN="你的GitHub令牌"
-bash <(curl -fsSL \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/DaFangYue/dola_fetch_service/contents/scripts/install.sh?ref=main")
-```
-
-私有仓库的 Token 只需要勾选 `repo` 权限。Token 不要写入脚本或 README，只在安装时通过环境变量临时传入。
 
 安装完成后窗口提示：
 
