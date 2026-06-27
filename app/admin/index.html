@@ -125,6 +125,30 @@
             </div>
           </div>
 
+          <section class="panel dashboard-proxy-panel" id="proxyConfigPanel">
+            <div class="panel-header">
+              <div class="proxy-title-row">
+                <h2>代理配置</h2>
+                <span class="section-side-label">提取地址</span>
+              </div>
+              <div class="proxy-header-actions">
+                <span class="muted" id="configState">未读取</span>
+                <button class="secondary-button" id="loadProxyConfig" type="button">读取当前</button>
+                <button class="primary-button" id="saveProxyConfig" type="button">保存配置</button>
+              </div>
+            </div>
+
+            <label class="field proxy-url-field">
+              <span class="sr-only">提取地址</span>
+              <textarea id="proxyApiUrl" rows="5" spellcheck="false"></textarea>
+            </label>
+
+            <div class="proxy-notice">
+              <strong>提取地址说明</strong>
+              <span>请输入完整的 http 或 https 提取接口地址，接口返回内容应为单个代理地址，例如 <code>1.2.3.4:20000</code>。查询提取接口本身不走代理；保存后，新任务会使用新地址。</span>
+            </div>
+          </section>
+
         </section>
 
         <section class="view" id="submitView" data-title="提交任务">

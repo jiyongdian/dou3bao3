@@ -42,6 +42,11 @@ const els = {
   nextPage: document.getElementById("nextPage"),
   pageState: document.getElementById("pageState"),
   taskTableBody: document.getElementById("taskTableBody"),
+  proxyConfigPanel: document.getElementById("proxyConfigPanel"),
+  loadProxyConfig: document.getElementById("loadProxyConfig"),
+  proxyApiUrl: document.getElementById("proxyApiUrl"),
+  saveProxyConfig: document.getElementById("saveProxyConfig"),
+  configState: document.getElementById("configState"),
   quotaNavItem: document.getElementById("quotaNavItem"),
   refreshTempTokens: document.getElementById("refreshTempTokens"),
   openCreateTokenModal: document.getElementById("openCreateTokenModal"),
@@ -414,9 +419,43 @@ async function refreshHealth() {
   els.metricWorkers.textContent = String(data.browser_workers ?? "-");
   if (els.editWorkers) els.editWorkers.classList.toggle("hidden", state.isTempToken);
   if (els.quotaNavItem) els.quotaNavItem.classList.toggle("hidden", state.isTempToken);
+  if (els.proxyConfigPanel) els.proxyConfigPanel.classList.toggle("hidden", state.isTempToken);
   setServiceState(true);
   updateDashboardMetrics();
   return data;
+}
+
+async function loadProxyConfig() {
+  if (state.isTempToken || !els.proxyApiUrl) return null;
+  const data = await apiFetch("/config/proxy-api");
+  els.proxyApiUrl.value = data.proxy_api_url || "";
+  if (els.configState) els.configState.textContent = "已读取";
+  return data;
+}
+
+async function saveProxyConfig() {
+  if (state.isTempToken) return;
+  const url = els.proxyApiUrl?.value.trim() || "";
+  if (!url) {
+    toast("提取地址不能为空", "error");
+    return;
+  }
+  setBusy(els.saveProxyConfig, true, "保存中");
+  try {
+    await apiFetch("/config/proxy-api", {
+      method: "POST",
+      body: {
+        proxy_api_url: url,
+        proxy_api_scheme: "http",
+      },
+    });
+    if (els.configState) els.configState.textContent = "已保存";
+    toast("代理配置已更新");
+  } catch (error) {
+    toast(`保存失败：${error.message}`, "error");
+  } finally {
+    setBusy(els.saveProxyConfig, false);
+  }
 }
 
 function openWorkersModal() {
@@ -509,6 +548,7 @@ async function refreshDashboard() {
     const results = await Promise.allSettled([
       refreshHealth(),
       refreshTasks({ quiet: true }),
+      loadProxyConfig(),
     ]);
     const rejected = results.find((item) => item.status === "rejected");
     if (rejected) throw rejected.reason;
@@ -1037,6 +1077,18 @@ function bindEvents() {
   els.refreshTasks.addEventListener("click", () => refreshTasks());
   els.queryVisibleTasks.addEventListener("click", queryVisibleTasks);
   els.clearTasks.addEventListener("click", clearTasks);
+  els.loadProxyConfig?.addEventListener("click", async () => {
+    setBusy(els.loadProxyConfig, true, "读取中");
+    try {
+      await loadProxyConfig();
+      toast("代理配置已读取");
+    } catch (error) {
+      toast(`读取失败：${error.message}`, "error");
+    } finally {
+      setBusy(els.loadProxyConfig, false);
+    }
+  });
+  els.saveProxyConfig?.addEventListener("click", saveProxyConfig);
   els.refreshTempTokens?.addEventListener("click", () => refreshTempTokens());
   els.openCreateTokenModal?.addEventListener("click", openCreateTokenModal);
   els.editWorkers.addEventListener("click", openWorkersModal);

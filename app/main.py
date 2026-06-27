@@ -150,7 +150,7 @@ async def admin_panel():
     return FileResponse(index_path, headers={"Cache-Control": "no-store"})
 
 
-@app.get("/config/proxy-api", dependencies=[Depends(require_token)])
+@app.get("/config/proxy-api", dependencies=[Depends(require_admin)])
 async def proxy_api_config():
     settings = load_settings()
     return {
@@ -192,9 +192,9 @@ async def update_workers_config(
     return {"ok": True, "browser_workers": settings.browser_workers}
 
 
-@app.patch("/config/proxy-api", dependencies=[Depends(require_token)])
-@app.put("/config/proxy-api", dependencies=[Depends(require_token)])
-@app.post("/config/proxy-api", dependencies=[Depends(require_token)])
+@app.patch("/config/proxy-api", dependencies=[Depends(require_admin)])
+@app.put("/config/proxy-api", dependencies=[Depends(require_admin)])
+@app.post("/config/proxy-api", dependencies=[Depends(require_admin)])
 async def update_proxy_api_config(
     request: Request,
     url: Annotated[str | None, Query()] = None,
