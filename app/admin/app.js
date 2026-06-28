@@ -1,6 +1,9 @@
 const TOKEN_KEY = "dfyue_api_token";
 const AUTH_KEY = "dfyue_auth_ok";
 const RESULTS_KEY = "dfyue_task_results";
+const pathName = window.location.pathname.replace(/\/+$/, "");
+const portal = pathName === "/client" ? "client" : "admin";
+const authPath = portal === "client" ? "/auth/client" : "/auth/admin";
 
 const els = {
   loginView: document.getElementById("loginView"),
@@ -48,6 +51,7 @@ const els = {
   saveProxyConfig: document.getElementById("saveProxyConfig"),
   configState: document.getElementById("configState"),
   quotaNavItem: document.getElementById("quotaNavItem"),
+  quotaView: document.getElementById("quotaView"),
   refreshTempTokens: document.getElementById("refreshTempTokens"),
   openCreateTokenModal: document.getElementById("openCreateTokenModal"),
   tempTokenTableBody: document.getElementById("tempTokenTableBody"),
@@ -95,6 +99,10 @@ const state = {
 };
 
 const MAX_IMAGE_COUNT = 9;
+
+function portalStorageKey(base) {
+  return `${base}_${portal}`;
+}
 
 function loadSessionResults() {
   try {
@@ -322,16 +330,68 @@ function setServiceState(ok, note) {
 }
 
 function showLogin(message = "等待输入") {
+  document.body.dataset.portal = portal;
   els.appShell.classList.add("hidden");
   els.loginView.classList.remove("hidden");
   els.loginState.textContent = message;
-  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(portalStorageKey(AUTH_KEY));
 }
 
 function showApp() {
+  document.body.dataset.portal = portal;
   els.loginView.classList.add("hidden");
   els.appShell.classList.remove("hidden");
   switchView("dashboard");
+}
+
+function applyPortalText() {
+  document.body.dataset.portal = portal;
+  document.title = portal === "client" ? "DFYue Fetch 客户入口" : "DFYue Fetch 管理面板";
+  document.querySelectorAll(".login-heading .eyebrow").forEach((node) => {
+    node.textContent = portal === "client" ? "客户入口" : "管理面板";
+  });
+  const tokenLabel = document.querySelector("label.field span");
+  if (tokenLabel) tokenLabel.textContent = portal === "client" ? "客户 Token" : "管理员 Token";
+  if (els.loginToken) {
+    els.loginToken.placeholder = portal === "client" ? "请输入客户 Token" : "请输入管理员 Token";
+  }
+  const hint = document.querySelector(".login-token-hint > span");
+  if (hint) {
+    hint.textContent = portal === "client"
+      ? "客户 Token 由管理员分配，请联系管理员获取"
+      : "API Token唯一获取方式：登入服务器使用命令行获取";
+  }
+  document.querySelector(".login-command-row")?.classList.toggle("hidden", portal === "client");
+}
+
+function applyAccessScope(data = {}) {
+  state.isTempToken = portal === "client";
+  const isClient = portal === "client";
+  if (els.editWorkers) els.editWorkers.classList.toggle("hidden", isClient);
+  if (els.proxyConfigPanel) els.proxyConfigPanel.classList.toggle("hidden", isClient);
+  if (els.quotaNavItem) {
+    els.quotaNavItem.classList.toggle("hidden", isClient);
+    els.quotaNavItem.setAttribute("aria-hidden", isClient ? "true" : "false");
+    els.quotaNavItem.tabIndex = isClient ? -1 : 0;
+  }
+  if (els.quotaView) {
+    els.quotaView.classList.toggle("hidden", isClient);
+    els.quotaView.setAttribute("aria-hidden", isClient ? "true" : "false");
+  }
+  const docsNav = document.querySelector('.nav-item[data-view="docs"]');
+  const docsView = document.getElementById("docsView");
+  if (docsNav) {
+    docsNav.classList.toggle("hidden", isClient);
+    docsNav.setAttribute("aria-hidden", isClient ? "true" : "false");
+    docsNav.tabIndex = isClient ? -1 : 0;
+  }
+  if (docsView) {
+    docsView.classList.toggle("hidden", isClient);
+    docsView.setAttribute("aria-hidden", isClient ? "true" : "false");
+  }
+  if (isClient && ["quotaView", "docsView"].includes(document.querySelector(".view.active")?.id || "")) {
+    switchView("dashboard");
+  }
 }
 
 async function login(event) {
@@ -340,10 +400,11 @@ async function login(event) {
   setBusy(els.loginButton, true, "校验中");
   els.loginState.textContent = "校验中";
   try {
-    await requestJson("/health", token);
+    const health = await requestJson(authPath, token);
     state.apiToken = token;
-    localStorage.setItem(TOKEN_KEY, token);
-    sessionStorage.setItem(AUTH_KEY, "1");
+    applyAccessScope(health);
+    localStorage.setItem(portalStorageKey(TOKEN_KEY), token);
+    sessionStorage.setItem(portalStorageKey(AUTH_KEY), "1");
     clearTokenFromUrl();
     showApp();
     await refreshDashboard();
@@ -357,12 +418,16 @@ async function login(event) {
 
 function logout() {
   state.apiToken = "";
-  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(portalStorageKey(AUTH_KEY));
   showLogin("已退出");
 }
 
 function switchView(name) {
-  if (name === "quota" && state.isTempToken) {
+  if (portal === "client" && ["quota", "docs"].includes(name)) {
+    name = "dashboard";
+  }
+  const targetView = document.getElementById(`${name}View`);
+  if (!targetView || targetView.classList.contains("hidden")) {
     name = "dashboard";
   }
   document.querySelectorAll(".nav-item").forEach((button) => {
@@ -415,18 +480,15 @@ function updateDashboardMetrics() {
 async function refreshHealth() {
   const data = await apiFetch("/health");
   state.activeIds = Array.isArray(data.active) ? data.active : [];
-  state.isTempToken = Boolean(data.quota);
   els.metricWorkers.textContent = String(data.browser_workers ?? "-");
-  if (els.editWorkers) els.editWorkers.classList.toggle("hidden", state.isTempToken);
-  if (els.quotaNavItem) els.quotaNavItem.classList.toggle("hidden", state.isTempToken);
-  if (els.proxyConfigPanel) els.proxyConfigPanel.classList.toggle("hidden", state.isTempToken);
+  applyAccessScope(data);
   setServiceState(true);
   updateDashboardMetrics();
   return data;
 }
 
 async function loadProxyConfig() {
-  if (state.isTempToken || !els.proxyApiUrl) return null;
+  if (portal === "client" || !els.proxyApiUrl) return null;
   const data = await apiFetch("/config/proxy-api");
   els.proxyApiUrl.value = data.proxy_api_url || "";
   if (els.configState) els.configState.textContent = "已读取";
@@ -434,7 +496,7 @@ async function loadProxyConfig() {
 }
 
 async function saveProxyConfig() {
-  if (state.isTempToken) return;
+  if (portal === "client") return;
   const url = els.proxyApiUrl?.value.trim() || "";
   if (!url) {
     toast("提取地址不能为空", "error");
@@ -545,11 +607,10 @@ async function saveWorkersConfig() {
 
 async function refreshDashboard() {
   try {
-    const results = await Promise.allSettled([
-      refreshHealth(),
-      refreshTasks({ quiet: true }),
-      loadProxyConfig(),
-    ]);
+    await refreshHealth();
+    const jobs = [refreshTasks({ quiet: true })];
+    if (portal === "admin") jobs.push(loadProxyConfig());
+    const results = await Promise.allSettled(jobs);
     const rejected = results.find((item) => item.status === "rejected");
     if (rejected) throw rejected.reason;
   } catch (error) {
@@ -729,7 +790,7 @@ function renderTempTokenTable() {
 }
 
 async function refreshTempTokens(options = {}) {
-  if (state.isTempToken) return;
+  if (portal === "client") return;
   if (!options.quiet) setBusy(els.refreshTempTokens, true, "刷新中");
   try {
     const data = await apiFetch("/temp-tokens");
@@ -745,6 +806,7 @@ async function refreshTempTokens(options = {}) {
 }
 
 function openCreateTokenModal() {
+  if (portal === "client") return;
   els.createTokenCount.value = "1";
   els.createTokenLimit.value = "100";
   els.createTokenState.textContent = "";
@@ -1295,19 +1357,30 @@ function bindEvents() {
 async function init() {
   const params = new URLSearchParams(window.location.search);
   const tokenFromUrl = params.get("token") || "";
-  const savedToken = tokenFromUrl || localStorage.getItem(TOKEN_KEY) || localStorage.getItem("dola_fetch_api_token") || "";
+  const legacyToken = portal === "admin" ? localStorage.getItem(TOKEN_KEY) || localStorage.getItem("dola_fetch_api_token") || "" : "";
+  const savedToken = tokenFromUrl || localStorage.getItem(portalStorageKey(TOKEN_KEY)) || legacyToken;
   els.loginToken.value = savedToken;
 
+  applyPortalText();
   bindEvents();
   renderImages();
   renderTaskTable();
   updateDashboardMetrics();
 
-  if (sessionStorage.getItem(AUTH_KEY) === "1" && savedToken) {
-    state.apiToken = savedToken;
-    clearTokenFromUrl();
-    showApp();
-    await refreshDashboard();
+  if (sessionStorage.getItem(portalStorageKey(AUTH_KEY)) === "1" && savedToken) {
+    try {
+      const health = await requestJson(authPath, savedToken);
+      state.apiToken = savedToken;
+      applyAccessScope(health);
+      clearTokenFromUrl();
+      showApp();
+      await refreshDashboard();
+    } catch (error) {
+      state.apiToken = "";
+      sessionStorage.removeItem(portalStorageKey(AUTH_KEY));
+      showLogin("Token 已失效");
+      toast(`自动登录失败：${error.message}`, "error");
+    }
     return;
   }
 

@@ -101,8 +101,31 @@ async def require_admin(access: Annotated[AccessContext, Depends(require_token)]
     return access
 
 
+async def require_temp(access: Annotated[AccessContext, Depends(require_token)]) -> AccessContext:
+    if not access.is_temp:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return access
+
+
 def _json(data: dict | list, status_code: int = 200) -> JSONResponse:
     return JSONResponse(content=data, status_code=status_code)
+
+
+def _health_payload(access: AccessContext) -> dict:
+    settings = load_settings()
+    data = {
+        "ok": True,
+        "role": "admin" if access.is_admin else "client",
+        "browser_workers": settings.browser_workers,
+        "active": sorted(active_task_ids()),
+    }
+    if access.is_temp:
+        data["quota"] = {
+            "limit": access.limit,
+            "used": access.used,
+            "remaining": access.remaining,
+        }
+    return data
 
 
 async def _request_payload(request: Request) -> dict[str, str]:
@@ -126,19 +149,17 @@ async def _request_payload(request: Request) -> dict[str, str]:
 
 @app.get("/health", dependencies=[Depends(require_token)])
 async def health(access: Annotated[AccessContext, Depends(require_token)]):
-    settings = load_settings()
-    data = {
-        "ok": True,
-        "browser_workers": settings.browser_workers,
-        "active": sorted(active_task_ids()),
-    }
-    if access.is_temp:
-        data["quota"] = {
-            "limit": access.limit,
-            "used": access.used,
-            "remaining": access.remaining,
-        }
-    return data
+    return _health_payload(access)
+
+
+@app.get("/auth/admin", dependencies=[Depends(require_admin)])
+async def admin_auth(access: Annotated[AccessContext, Depends(require_admin)]):
+    return _health_payload(access)
+
+
+@app.get("/auth/client", dependencies=[Depends(require_temp)])
+async def client_auth(access: Annotated[AccessContext, Depends(require_temp)]):
+    return _health_payload(access)
 
 
 @app.get("/admin", include_in_schema=False)
@@ -147,6 +168,15 @@ async def admin_panel():
     index_path = ADMIN_DIR / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="admin panel not found")
+    return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/client", include_in_schema=False)
+@app.get("/client/", include_in_schema=False)
+async def client_panel():
+    index_path = ADMIN_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="client panel not found")
     return FileResponse(index_path, headers={"Cache-Control": "no-store"})
 
 

@@ -4,9 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DFYue Fetch 管理面板</title>
-    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260627-toast-100ms-1" />
+    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260628-client-portal-1" />
   </head>
   <body>
+    <script>
+      document.body.dataset.portal = location.pathname.replace(/\/+$/, "") === "/client" ? "client" : "admin";
+    </script>
     <section class="login-screen" id="loginView">
       <form class="login-panel" id="loginForm">
         <div class="login-brand">
@@ -563,6 +566,6 @@
         </div>
       </section>
     </div>
-    <script src="/admin/assets/app.js?v=20260627-toast-100ms-1"></script>
+    <script src="/admin/assets/app.js?v=20260628-client-portal-1"></script>
   </body>
 </html>

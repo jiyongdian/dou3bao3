@@ -43,6 +43,14 @@ body {
   display: none !important;
 }
 
+body[data-portal="client"] #proxyConfigPanel,
+body[data-portal="client"] #quotaNavItem,
+body[data-portal="client"] #quotaView,
+body[data-portal="client"] .nav-item[data-view="docs"],
+body[data-portal="client"] #docsView {
+  display: none !important;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
