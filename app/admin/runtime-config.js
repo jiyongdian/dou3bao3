@@ -1,0 +1,1 @@
+window.DFYUE_RUNTIME_CONFIG = window.DFYUE_RUNTIME_CONFIG || {};

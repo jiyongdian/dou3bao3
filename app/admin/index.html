@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DFYue Fetch 管理面板</title>
-    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260628-client-portal-1" />
+    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260628-client-entry-1" />
   </head>
   <body>
     <script>
@@ -244,6 +244,12 @@
             <div class="panel-header">
               <div>
                 <h2>临时 Token</h2>
+                <p class="quota-entry-note">客户入口：生成临时 Token 后，将 Token 发给客户，客户只能从客户入口登录并查看自己的任务。</p>
+              </div>
+              <div class="client-entry-box">
+                <span>客户入口</span>
+                <input id="clientEntryUrl" type="text" readonly aria-label="客户入口地址" />
+                <button class="secondary-button" id="copyClientEntryUrl" type="button">复制入口</button>
               </div>
               <div class="toolbar-actions">
                 <button class="secondary-button" id="refreshTempTokens" type="button" onclick="window.dfyueRefreshTempTokens?.()">刷新</button>
@@ -566,6 +572,7 @@
         </div>
       </section>
     </div>
-    <script src="/admin/assets/app.js?v=20260628-client-portal-1"></script>
+    <script src="/admin/assets/runtime-config.js?v=20260628-client-entry-1"></script>
+    <script src="/admin/assets/app.js?v=20260628-client-entry-1"></script>
   </body>
 </html>

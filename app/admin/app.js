@@ -52,6 +52,8 @@ const els = {
   configState: document.getElementById("configState"),
   quotaNavItem: document.getElementById("quotaNavItem"),
   quotaView: document.getElementById("quotaView"),
+  clientEntryUrl: document.getElementById("clientEntryUrl"),
+  copyClientEntryUrl: document.getElementById("copyClientEntryUrl"),
   refreshTempTokens: document.getElementById("refreshTempTokens"),
   openCreateTokenModal: document.getElementById("openCreateTokenModal"),
   tempTokenTableBody: document.getElementById("tempTokenTableBody"),
@@ -102,6 +104,16 @@ const MAX_IMAGE_COUNT = 9;
 
 function portalStorageKey(base) {
   return `${base}_${portal}`;
+}
+
+function getClientEntryUrl() {
+  const configured = window.DFYUE_RUNTIME_CONFIG?.clientEntryUrl || window.DFYUE_RUNTIME_CONFIG?.client_entry_url || "";
+  if (configured) return String(configured);
+  const url = new URL(window.location.href);
+  url.pathname = "/client";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
 }
 
 function loadSessionResults() {
@@ -347,6 +359,7 @@ function showApp() {
 function applyPortalText() {
   document.body.dataset.portal = portal;
   document.title = portal === "client" ? "DFYue Fetch 客户入口" : "DFYue Fetch 管理面板";
+  if (els.clientEntryUrl) els.clientEntryUrl.value = getClientEntryUrl();
   document.querySelectorAll(".login-heading .eyebrow").forEach((node) => {
     node.textContent = portal === "client" ? "客户入口" : "管理面板";
   });
@@ -1126,6 +1139,12 @@ function bindEvents() {
   els.loginForm.addEventListener("submit", login);
   els.copyTokenCommand?.addEventListener("click", async () => {
     await copyText(els.tokenCommand?.value?.trim() || "", "命令行");
+  });
+  els.copyClientEntryUrl?.addEventListener("click", async () => {
+    await copyText(els.clientEntryUrl?.value?.trim() || getClientEntryUrl(), "客户入口");
+  });
+  els.clientEntryUrl?.addEventListener("dblclick", () => {
+    els.clientEntryUrl.select();
   });
   els.tokenCommand?.addEventListener("dblclick", () => {
     els.tokenCommand.select();

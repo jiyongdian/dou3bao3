@@ -943,6 +943,35 @@ textarea:focus {
   margin-top: 12px;
 }
 
+.quota-entry-note {
+  max-width: 620px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.client-entry-box {
+  display: grid;
+  grid-template-columns: auto minmax(260px, 420px) auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.client-entry-box input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  color: #25313a;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+}
+
 .task-table {
   width: 100%;
   min-width: 900px;
@@ -1689,6 +1718,12 @@ textarea:focus {
 
   .toolbar-actions {
     justify-content: stretch;
+  }
+
+  .client-entry-box {
+    grid-template-columns: 1fr;
+    width: 100%;
+    margin-left: 0;
   }
 
   .toolbar-actions button,

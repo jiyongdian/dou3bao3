@@ -327,8 +327,22 @@ get_server_ip() {
   echo "${ip:-服务器IP}"
 }
 
+write_runtime_config() {
+  local server_ip port admin_url client_url
+  server_ip="$1"
+  port="$2"
+  admin_url="http://${server_ip}:${port}/admin"
+  client_url="http://${server_ip}:${port}/client"
+  cat > "$APP_DIR/app/admin/runtime-config.js" <<EOF
+window.DFYUE_RUNTIME_CONFIG = {
+  adminEntryUrl: "${admin_url}",
+  clientEntryUrl: "${client_url}"
+};
+EOF
+}
+
 print_result() {
-  local token server_ip port
+  local token server_ip port admin_url client_url
   token="$("$APP_DIR/scripts/show-token.sh" 2>/dev/null || true)"
   server_ip="$(get_server_ip)"
   port="$("$APP_DIR/.venv/bin/python" - <<'PY'
@@ -336,10 +350,14 @@ from app.config import load_settings
 print(load_settings().port)
 PY
 )"
+  admin_url="http://${server_ip}:${port}/admin"
+  client_url="http://${server_ip}:${port}/client"
+  write_runtime_config "$server_ip" "$port"
 
   echo
   echo "安装成功"
-  echo "面板地址：http://${server_ip}:${port}/admin"
+  echo "管理员面板：${admin_url}"
+  echo "客户入口：${client_url}"
   echo "API Token：${token}"
   echo
   echo "常用命令："
