@@ -15,8 +15,9 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from .config import (
     DEFAULT_RATIO,
@@ -678,6 +679,16 @@ def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _video_task_body(response: dict[str, Any]) -> dict[str, Any]:
+    body = _video_generation_body(response)
+    body["format"] = "mp4"
+    body["metadata"] = {
+        "source": "dfyuefetch",
+        "content_url": body.get("content_url") or "",
+    }
+    return body
+
+
 def _video_list_body(request: Request, access: AccessContext) -> dict[str, Any]:
     owner = access.token_hash if access.is_temp else None
     data: list[dict[str, Any]] = []
@@ -1159,7 +1170,19 @@ async def openai_video_generations(
         )
     else:
         response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
-    return _video_generation_body(response)
+    return _video_task_body(response)
+
+
+@app.get("/v1/video/generations/{task_id}", dependencies=[Depends(require_token)])
+@app.get("/v1/videos/generations/{task_id}", dependencies=[Depends(require_token)])
+async def openai_video_generation_status(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+    task_id: str,
+):
+    meta, result = await _query_openai_task(access, task_id)
+    response = _openai_response_body(request=request, task_id=task_id, meta=meta, result=result)
+    return _video_task_body(response)
 
 
 @app.post("/v1/images/generations", dependencies=[Depends(require_token)])
@@ -1225,11 +1248,27 @@ async def openai_videos(
 ):
     payload: dict[str, Any] = {}
     if request.method != "GET":
-        payload = await _openai_payload(request)
+        payload, uploads = await _openai_payload_and_uploads(request)
+        task_id = str(
+            payload.get("id")
+            or payload.get("video_id")
+            or payload.get("response_id")
+            or payload.get("task_id")
+            or ""
+        ).strip()
+        if not task_id:
+            prompt = _openai_prompt(payload)
+            if not prompt:
+                raise HTTPException(status_code=400, detail="input is required")
+            ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size") or DEFAULT_RATIO).strip()
+            meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+            response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+            return _video_task_body(response)
     task_id = str(
         id
         or video_id
         or response_id
+        or payload.get("task_id")
         or payload.get("id")
         or payload.get("video_id")
         or payload.get("response_id")
@@ -1239,7 +1278,7 @@ async def openai_videos(
         return _video_list_body(request, access)
     meta, result = await _query_openai_task(access, task_id)
     response = _openai_response_body(request=request, task_id=task_id, meta=meta, result=result)
-    return _video_generation_body(response)
+    return _video_task_body(response)
 
 
 @app.get("/v1/videos/{video_id}", dependencies=[Depends(require_token)])
@@ -1251,7 +1290,7 @@ async def openai_video(
 ):
     meta, result = await _query_openai_task(access, video_id)
     response = _openai_response_body(request=request, task_id=video_id, meta=meta, result=result)
-    return _video_generation_body(response)
+    return _video_task_body(response)
 
 
 @app.get("/v1/videos/{video_id}/content", dependencies=[Depends(require_token)])
@@ -1262,7 +1301,28 @@ async def openai_video_content(access: Annotated[AccessContext, Depends(require_
     url = str(result.get("url") or "")
     if str(result.get("code") or "") != "2" or not url:
         raise HTTPException(status_code=409, detail="video is not ready")
-    return RedirectResponse(url=url, status_code=302)
+    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=True, trust_env=False)
+    try:
+        upstream = await client.send(client.build_request("GET", url), stream=True)
+        upstream.raise_for_status()
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"failed to fetch video content: {exc}")
+
+    async def close_upstream() -> None:
+        await upstream.aclose()
+        await client.aclose()
+
+    headers: dict[str, str] = {}
+    content_length = upstream.headers.get("content-length")
+    if content_length:
+        headers["Content-Length"] = content_length
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        media_type=upstream.headers.get("content-type") or "video/mp4",
+        headers=headers,
+        background=BackgroundTask(close_upstream),
+    )
 
 
 @app.api_route(
