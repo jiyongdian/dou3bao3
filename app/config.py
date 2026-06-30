@@ -22,6 +22,7 @@ TASKS_DIR = DATA_DIR / "tasks"
 RUNTIME_PATH = DATA_DIR / "runtime.json"
 
 TARGET_URL = "https://www.dola.com/chat/create-image"
+DEFAULT_VIDEO_MODEL = (os.environ.get("DOLA_VIDEO_MODEL") or os.environ.get("OPENAI_MODEL") or "seedance_v2.0").strip() or "seedance_v2.0"
 VALID_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9", "21:9"}
 DEFAULT_RATIO = "9:16"
 DEFAULT_PROXY_API_URL = os.environ.get(
@@ -71,6 +72,7 @@ def default_config() -> dict[str, Any]:
         "headless": True,
         "task_timeout_seconds": 180,
         "video_duration": 15,
+        "video_model": DEFAULT_VIDEO_MODEL,
         "max_image_count": 9,
         "proxy_api_url": DEFAULT_PROXY_API_URL,
         "proxy_api_scheme": "http",
@@ -174,6 +176,7 @@ class Settings:
     headless: bool
     task_timeout_seconds: int
     video_duration: int
+    video_model: str
     max_image_count: int
     proxy_api_url: str
     proxy_api_scheme: str
@@ -211,6 +214,7 @@ def load_settings() -> Settings:
         headless=_as_bool(data.get("headless"), True),
         task_timeout_seconds=max(30, int(data.get("task_timeout_seconds") or 180)),
         video_duration=max(1, int(data.get("video_duration") or 15)),
+        video_model=str(data.get("video_model") or DEFAULT_VIDEO_MODEL).strip() or DEFAULT_VIDEO_MODEL,
         max_image_count=max(0, min(9, int(data.get("max_image_count") or 9))),
         proxy_api_url=str(data.get("proxy_api_url") or DEFAULT_PROXY_API_URL).strip(),
         proxy_api_scheme=proxy_api_scheme,

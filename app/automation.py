@@ -191,7 +191,7 @@ async ({body}) => {
 
 
 SUBMIT_SCRIPT = r"""
-async ({prompt, ratio, duration, attachments}) => {
+async ({prompt, ratio, duration, model, attachments}) => {
   function uuid() {
     return crypto.randomUUID ? crypto.randomUUID() :
       "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
@@ -391,7 +391,7 @@ async ({prompt, ratio, duration, attachments}) => {
       },
       chat_ability: {
         ability_type: 17,
-        ability_param: JSON.stringify({ ratio, model: "seedance_v2.0", duration: Number(duration) })
+        ability_param: JSON.stringify({ ratio, model, duration: Number(duration) })
       },
       user_context: [],
       ext: {
@@ -660,6 +660,7 @@ class DolaFetchAutomation:
                         "prompt": self.prompt,
                         "ratio": self.ratio,
                         "duration": self.settings.video_duration,
+                        "model": self.settings.video_model,
                         "attachments": attachments,
                     },
                 )

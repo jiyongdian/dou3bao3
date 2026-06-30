@@ -5,7 +5,7 @@
 ## 基础信息
 
 - Base URL：`https://你的域名`
-- 默认模型名：`dfyue-video`
+- 默认模型名：`seedance_v2.0`
 - 默认管理员 Token：`dfyue-video-fixed-token`
 - 推荐认证方式：`Authorization: Bearer <TOKEN>`
 - 兼容认证方式：`X-API-Token: <TOKEN>` 或 URL 参数 `?token=<TOKEN>`
@@ -36,7 +36,7 @@
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `model` | string | `dfyue-video` | 兼容 OpenAI 平台填写用，当前只支持这个模型名 |
+| `model` | string | `seedance_v2.0` | 兼容 OpenAI 平台填写用，默认使用真实上游模型名；可通过 `DOLA_VIDEO_MODEL` 或 `OPENAI_MODEL` 环境变量覆盖 |
 | `input` / `prompt` / `text` | string | 无 | 视频提示词 |
 | `ratio` / `aspect_ratio` | string | `9:16` | 支持 `1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
 | `wait` | boolean | `false` | 是否等待视频完成后再返回 |
@@ -54,6 +54,8 @@ curl "https://你的域名/v1/models" \
   -H "Authorization: Bearer dfyue-video-fixed-token"
 ```
 
+兼容路径：`/models`、`/v1/v1/models`。如果上游平台会自动拼接 `/v1`，API 地址填域名即可；如果误填了带 `/v1` 的地址，兼容路径也能返回模型。
+
 响应示例：
 
 ```json
@@ -61,10 +63,13 @@ curl "https://你的域名/v1/models" \
   "object": "list",
   "data": [
     {
-      "id": "dfyue-video",
+      "id": "seedance_v2.0",
       "object": "model",
-      "created": 1780000000,
-      "owned_by": "dfyue"
+      "created": 0,
+      "owned_by": "dola",
+      "root": "seedance_v2.0",
+      "parent": null,
+      "permission": []
     }
   ]
 }
@@ -77,7 +82,7 @@ curl -X POST "https://你的域名/v1/responses" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "input": "一个人在跑步健身，电影感，竖屏",
     "ratio": "9:16",
     "wait": false
@@ -91,7 +96,7 @@ curl -X POST "https://你的域名/v1/responses" \
   "id": "0123456789abcdef0123456789abcdef",
   "object": "response",
   "status": "queued",
-  "model": "dfyue-video",
+  "model": "seedance_v2.0",
   "output": [
     {
       "type": "message",
@@ -122,7 +127,7 @@ curl -X POST "https://你的域名/v1/responses" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "input": "一个人在海边散步，日落，真实摄影风格",
     "ratio": "16:9",
     "wait": true,
@@ -137,7 +142,7 @@ curl -X POST "https://你的域名/v1/responses" \
   "id": "0123456789abcdef0123456789abcdef",
   "object": "response",
   "status": "completed",
-  "model": "dfyue-video",
+  "model": "seedance_v2.0",
   "output": [
     {
       "type": "message",
@@ -194,7 +199,7 @@ curl -L "https://你的域名/v1/videos/0123456789abcdef0123456789abcdef/content
 ```bash
 curl -X POST "https://你的域名/v1/responses" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
-  -F "model=dfyue-video" \
+  -F "model=seedance_v2.0" \
   -F "input=让参考图中的人物在城市街头行走" \
   -F "ratio=9:16" \
   -F "wait=false" \
@@ -209,7 +214,7 @@ curl -X POST "https://你的域名/v1/responses" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "input": "让参考图中的人物转身看向镜头",
     "ratio": "9:16",
     "image_urls": [
@@ -226,7 +231,7 @@ curl -X POST "https://你的域名/v1/responses" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "input": [
       {"type": "input_text", "text": "让参考图中的人物微笑挥手"},
       {"type": "input_image", "image_url": "https://example.com/person.png"}
@@ -244,7 +249,7 @@ curl -X POST "https://你的域名/v1/chat/completions" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "messages": [
       {"role": "user", "content": "一个人在跑步健身，竖屏"}
     ],
@@ -264,7 +269,7 @@ curl -X POST "https://你的域名/v1/images/generations" \
   -H "Authorization: Bearer dfyue-video-fixed-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "dfyue-video",
+    "model": "seedance_v2.0",
     "prompt": "一只机器人在霓虹街道跳舞",
     "ratio": "16:9",
     "wait": true
@@ -404,7 +409,7 @@ create = requests.post(
     f"{BASE_URL}/v1/responses",
     headers=headers,
     json={
-        "model": "dfyue-video",
+        "model": "seedance_v2.0",
         "input": "一个人在跑步健身，竖屏",
         "ratio": "9:16",
         "wait": False,
@@ -444,7 +449,7 @@ async function main() {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "dfyue-video",
+      model: "seedance_v2.0",
       input: "一个人在跑步健身，竖屏",
       ratio: "9:16",
       wait: false,
@@ -477,7 +482,7 @@ main().catch(console.error);
 | --- | --- |
 | API 地址 / Base URL | `https://你的域名`，不要额外加 `/v1` |
 | API Key | 管理员 Token 或临时 Token |
-| 模型名称 | `dfyue-video` |
+| 模型名称 | `seedance_v2.0` |
 | 接口类型 | OpenAI 兼容 |
 | 推荐路径 | `/v1/responses` |
 | 无查询能力的平台 | 请求体加入 `"wait": true` 和合适的 `timeout_seconds` |

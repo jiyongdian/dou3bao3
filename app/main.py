@@ -540,27 +540,27 @@ def _openai_output_text(status: str, task_id: str, video_url: str, text: str) ->
     return f"video task {task_id} is {status}"
 
 
-def _model_list() -> dict[str, Any]:
-    now = int(time.time())
+def _video_model_id() -> str:
+    return load_settings().video_model
+
+
+def _model_body(model: str | None = None) -> dict[str, Any]:
+    model_id = model or _video_model_id()
     return {
-        "object": "list",
-        "data": [
-            {
-                "id": "dfyue-video",
-                "object": "model",
-                "created": now,
-                "owned_by": "dfyue",
-            }
-        ],
+        "id": model_id,
+        "object": "model",
+        "created": 0,
+        "owned_by": "dola",
+        "root": model_id,
+        "parent": None,
+        "permission": [],
     }
 
 
-def _model_body(model: str = "dfyue-video") -> dict[str, Any]:
+def _model_list() -> dict[str, Any]:
     return {
-        "id": model,
-        "object": "model",
-        "created": int(time.time()),
-        "owned_by": "dfyue",
+        "object": "list",
+        "data": [_model_body()],
     }
 
 
@@ -616,7 +616,7 @@ def _openai_response_body(
         "object": "response",
         "created_at": created_at,
         "status": status,
-        "model": "dfyue-video",
+        "model": _video_model_id(),
         "error": error,
         "output": [
             {
@@ -648,6 +648,45 @@ def _image_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
+    video = response.get("video") if isinstance(response.get("video"), dict) else {}
+    video_url = str(video.get("url") or video.get("content_url") or "")
+    task_id = str(response.get("id") or "")
+    status = str(response.get("status") or "queued")
+    body = {
+        "id": task_id,
+        "object": "video.generation",
+        "created": int(response.get("created_at") or time.time()),
+        "model": str(response.get("model") or _video_model_id()),
+        "status": status,
+        "url": video_url,
+        "content_url": video_url,
+        "video": {
+            "id": task_id,
+            "status": status,
+            "url": video_url,
+            "content_url": video_url,
+        },
+        "data": [{"url": video_url}] if video_url else [],
+    }
+    if response.get("error"):
+        body["error"] = response["error"]
+    return body
+
+
+def _video_list_body(request: Request, access: AccessContext) -> dict[str, Any]:
+    owner = access.token_hash if access.is_temp else None
+    data: list[dict[str, Any]] = []
+    for item in list_tasks(owner_token_hash=owner):
+        task_id = str(item.get("id") or "")
+        if not task_id:
+            continue
+        status = str(item.get("status") or "queued")
+        response = _openai_response_body(request=request, task_id=task_id, meta=item)
+        data.append(_video_generation_body(response))
+    return {"object": "list", "data": data}
+
+
 def _chat_completion_body(response: dict[str, Any]) -> dict[str, Any]:
     text = ""
     output = response.get("output")
@@ -663,7 +702,7 @@ def _chat_completion_body(response: dict[str, Any]) -> dict[str, Any]:
         "id": f"chatcmpl-{response.get('id')}",
         "object": "chat.completion",
         "created": int(response.get("created_at") or time.time()),
-        "model": "dfyue-video",
+        "model": _video_model_id(),
         "choices": [
             {
                 "index": 0,
@@ -976,26 +1015,34 @@ async def temp_tokens_delete(token_id: str):
     return {"ok": True}
 
 
+@app.get("/models", dependencies=[Depends(require_token)])
 @app.get("/v1/models", dependencies=[Depends(require_token)])
+@app.get("/v1/v1/models", dependencies=[Depends(require_token)])
 async def openai_models():
     return _model_list()
 
 
+@app.get("/models/{model_id}", dependencies=[Depends(require_token)])
 @app.get("/v1/models/{model_id}", dependencies=[Depends(require_token)])
+@app.get("/v1/v1/models/{model_id}", dependencies=[Depends(require_token)])
 async def openai_model(model_id: str):
-    if model_id != "dfyue-video":
+    if model_id != _video_model_id():
         return _openai_error(f"model '{model_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(model_id)
 
 
+@app.get("/engines", dependencies=[Depends(require_token)])
 @app.get("/v1/engines", dependencies=[Depends(require_token)])
+@app.get("/v1/v1/engines", dependencies=[Depends(require_token)])
 async def openai_engines():
     return _model_list()
 
 
+@app.get("/engines/{engine_id}", dependencies=[Depends(require_token)])
 @app.get("/v1/engines/{engine_id}", dependencies=[Depends(require_token)])
+@app.get("/v1/v1/engines/{engine_id}", dependencies=[Depends(require_token)])
 async def openai_engine(engine_id: str):
-    if engine_id != "dfyue-video":
+    if engine_id != _video_model_id():
         return _openai_error(f"engine '{engine_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(engine_id)
 
@@ -1010,7 +1057,7 @@ async def openai_embeddings(request: Request):
             {"object": "embedding", "index": index, "embedding": [0.0] * 8}
             for index in range(count)
         ],
-        "model": "dfyue-video",
+        "model": _video_model_id(),
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
 
@@ -1019,7 +1066,7 @@ async def openai_embeddings(request: Request):
 async def openai_moderations():
     return {
         "id": f"modr-{int(time.time())}",
-        "model": "dfyue-video",
+        "model": _video_model_id(),
         "results": [
             {
                 "flagged": False,
@@ -1084,6 +1131,33 @@ async def openai_chat_completions(
     return _chat_completion_body(response)
 
 
+@app.post("/v1/video/generations", dependencies=[Depends(require_token)])
+@app.post("/v1/videos/generations", dependencies=[Depends(require_token)])
+async def openai_video_generations(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+):
+    payload, uploads = await _openai_payload_and_uploads(request)
+    prompt = _openai_prompt(payload)
+    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size") or DEFAULT_RATIO).strip()
+    wait = _truthy(payload.get("wait"), False)
+    try:
+        timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
+    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    if wait:
+        response = await _wait_openai_task(
+            access=access,
+            request=request,
+            task_id=meta["id"],
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+    return _video_generation_body(response)
+
+
 @app.post("/v1/images/generations", dependencies=[Depends(require_token)])
 async def openai_image_generations(
     request: Request,
@@ -1121,7 +1195,7 @@ async def openai_completions(
         "id": chat["id"],
         "object": "text_completion",
         "created": chat["created"],
-        "model": "dfyue-video",
+        "model": _video_model_id(),
         "choices": [{"index": 0, "text": text, "finish_reason": "stop"}],
         "usage": chat["usage"],
     }
@@ -1135,6 +1209,45 @@ async def openai_get_response(
 ):
     meta, result = await _query_openai_task(access, response_id)
     return _openai_response_body(request=request, task_id=response_id, meta=meta, result=result)
+
+
+@app.api_route("/v1/videos", methods=["GET", "POST"], dependencies=[Depends(require_token)])
+async def openai_videos(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+    id: str | None = None,
+    video_id: str | None = None,
+    response_id: str | None = None,
+):
+    payload: dict[str, Any] = {}
+    if request.method != "GET":
+        payload = await _openai_payload(request)
+    task_id = str(
+        id
+        or video_id
+        or response_id
+        or payload.get("id")
+        or payload.get("video_id")
+        or payload.get("response_id")
+        or ""
+    ).strip()
+    if not task_id:
+        return _video_list_body(request, access)
+    meta, result = await _query_openai_task(access, task_id)
+    response = _openai_response_body(request=request, task_id=task_id, meta=meta, result=result)
+    return _video_generation_body(response)
+
+
+@app.get("/v1/videos/{video_id}", dependencies=[Depends(require_token)])
+@app.get("/videos/{video_id}", dependencies=[Depends(require_token)])
+async def openai_video(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+    video_id: str,
+):
+    meta, result = await _query_openai_task(access, video_id)
+    response = _openai_response_body(request=request, task_id=video_id, meta=meta, result=result)
+    return _video_generation_body(response)
 
 
 @app.get("/v1/videos/{video_id}/content", dependencies=[Depends(require_token)])
