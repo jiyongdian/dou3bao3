@@ -50,6 +50,14 @@ const els = {
   proxyApiUrl: document.getElementById("proxyApiUrl"),
   saveProxyConfig: document.getElementById("saveProxyConfig"),
   configState: document.getElementById("configState"),
+  updatePanel: document.getElementById("updatePanel"),
+  checkUpdate: document.getElementById("checkUpdate"),
+  applyUpdate: document.getElementById("applyUpdate"),
+  updateState: document.getElementById("updateState"),
+  updateCurrent: document.getElementById("updateCurrent"),
+  updateRemote: document.getElementById("updateRemote"),
+  updateBranch: document.getElementById("updateBranch"),
+  updateStatusText: document.getElementById("updateStatusText"),
   quotaNavItem: document.getElementById("quotaNavItem"),
   quotaView: document.getElementById("quotaView"),
   clientEntryUrl: document.getElementById("clientEntryUrl"),
@@ -382,6 +390,7 @@ function applyAccessScope(data = {}) {
   const isClient = portal === "client";
   if (els.editWorkers) els.editWorkers.classList.toggle("hidden", isClient);
   if (els.proxyConfigPanel) els.proxyConfigPanel.classList.toggle("hidden", isClient);
+  if (els.updatePanel) els.updatePanel.classList.toggle("hidden", isClient);
   if (els.quotaNavItem) {
     els.quotaNavItem.classList.toggle("hidden", isClient);
     els.quotaNavItem.setAttribute("aria-hidden", isClient ? "true" : "false");
@@ -533,6 +542,52 @@ async function saveProxyConfig() {
   }
 }
 
+
+function renderUpdateStatus(data) {
+  if (!data || portal === "client") return;
+  const available = data.available !== false;
+  if (els.updateCurrent) els.updateCurrent.textContent = data.commit || "-";
+  if (els.updateRemote) els.updateRemote.textContent = data.remote_commit || "-";
+  if (els.updateBranch) els.updateBranch.textContent = data.remote_branch || data.branch || "-";
+  let label = available ? "可检查" : "需要重新部署一次";
+  if (data.checked_remote) {
+    label = data.has_update ? `有更新，落后 ${data.behind} 个提交` : "已是最新";
+  } else if (data.dirty) {
+    label = "本地有改动";
+  }
+  if (els.updateStatusText) els.updateStatusText.textContent = label;
+  if (els.updateState) els.updateState.textContent = data.checked_remote ? "已检查" : "已读取";
+}
+
+async function checkUpdateStatus(options = {}) {
+  if (portal === "client" || !els.updatePanel) return null;
+  const query = options.checkRemote ? "?check_remote=true" : "";
+  const data = await apiFetch(`/admin/update/status${query}`);
+  renderUpdateStatus(data);
+  return data;
+}
+
+async function applyHotUpdate() {
+  if (portal === "client") return;
+  const ok = window.confirm("确认拉取 GitHub main 分支并重启服务吗？");
+  if (!ok) return;
+  setBusy(els.applyUpdate, true, "更新中");
+  if (els.updateState) els.updateState.textContent = "更新中";
+  try {
+    const data = await apiFetch("/admin/update", {
+      method: "POST",
+      body: { branch: "main", restart: true },
+    });
+    renderUpdateStatus(data.status || data);
+    toast("更新已触发，服务即将重启");
+    if (els.updateState) els.updateState.textContent = "重启中";
+  } catch (error) {
+    toast(`更新失败：${error.message}`, "error");
+    if (els.updateState) els.updateState.textContent = "更新失败";
+  } finally {
+    setBusy(els.applyUpdate, false);
+  }
+}
 function openWorkersModal() {
   const current = Number.parseInt(els.metricWorkers.textContent, 10);
   els.workersInput.value = Number.isFinite(current) ? String(current) : "1";
@@ -622,7 +677,10 @@ async function refreshDashboard() {
   try {
     await refreshHealth();
     const jobs = [refreshTasks({ quiet: true })];
-    if (portal === "admin") jobs.push(loadProxyConfig());
+    if (portal === "admin") {
+      jobs.push(loadProxyConfig());
+      jobs.push(checkUpdateStatus());
+    }
     const results = await Promise.allSettled(jobs);
     const rejected = results.find((item) => item.status === "rejected");
     if (rejected) throw rejected.reason;
@@ -1170,6 +1228,19 @@ function bindEvents() {
     }
   });
   els.saveProxyConfig?.addEventListener("click", saveProxyConfig);
+  els.checkUpdate?.addEventListener("click", async () => {
+    setBusy(els.checkUpdate, true, "检查中");
+    try {
+      const data = await checkUpdateStatus({ checkRemote: true });
+      toast(data?.has_update ? "发现新版本" : "当前已是最新版本");
+    } catch (error) {
+      toast(`检查失败：${error.message}`, "error");
+      if (els.updateState) els.updateState.textContent = "检查失败";
+    } finally {
+      setBusy(els.checkUpdate, false);
+    }
+  });
+  els.applyUpdate?.addEventListener("click", applyHotUpdate);
   els.refreshTempTokens?.addEventListener("click", () => refreshTempTokens());
   els.openCreateTokenModal?.addEventListener("click", openCreateTokenModal);
   els.editWorkers.addEventListener("click", openWorkersModal);

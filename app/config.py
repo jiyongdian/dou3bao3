@@ -28,10 +28,11 @@ DEFAULT_PROXY_API_URL = os.environ.get(
     "DOLA_DEFAULT_PROXY_API_URL",
     "https://example.com/get-proxy?num=1&type=txt",
 )
+FIXED_DEFAULT_API_TOKEN = "dfyue-video-fixed-token"
 DEFAULT_API_TOKEN = (
     os.environ.get("DOLA_API_TOKEN")
     or os.environ.get("API_TOKEN")
-    or ""
+    or FIXED_DEFAULT_API_TOKEN
 ).strip()
 VALID_PROXY_API_SCHEMES = {"http", "https"}
 VALID_PROXY_SERVER_SCHEMES = {"http", "https", "socks5", "socks5h"}

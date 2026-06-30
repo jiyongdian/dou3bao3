@@ -687,8 +687,46 @@ async def client_auth(access: Annotated[AccessContext, Depends(require_temp)]):
 
 
 @app.get("/admin/update/status", dependencies=[Depends(require_admin)])
-async def admin_update_status(access: Annotated[AccessContext, Depends(require_admin)]):
-    return _git_status_payload()
+async def admin_update_status(
+    access: Annotated[AccessContext, Depends(require_admin)],
+    check_remote: bool = False,
+    remote: str = "origin",
+    branch: str | None = None,
+):
+    status = _git_status_payload()
+    if not status.get("available") or not check_remote:
+        return status
+
+    assert update_lock is not None
+    remote = str(remote or "origin").strip()
+    branch = str(branch or status.get("branch") or "main").strip()
+    if not UPDATE_REMOTE_RE.fullmatch(remote):
+        raise HTTPException(status_code=400, detail="invalid git remote name")
+    if not UPDATE_BRANCH_RE.fullmatch(branch) or branch.startswith("-") or ".." in branch:
+        raise HTTPException(status_code=400, detail="invalid git branch name")
+
+    async with update_lock:
+        await asyncio.to_thread(_git_required, ["fetch", "--prune", remote, branch], 180)
+        remote_ref = f"{remote}/{branch}"
+        remote_commit = _git_result(["rev-parse", "--short", remote_ref])
+        counts = _git_result(["rev-list", "--left-right", "--count", f"HEAD...{remote_ref}"])
+        ahead = behind = 0
+        if counts["ok"] and counts["stdout"]:
+            parts = counts["stdout"].split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                ahead = int(parts[0])
+                behind = int(parts[1])
+        status.update(
+            {
+                "checked_remote": True,
+                "remote_branch": branch,
+                "remote_commit": remote_commit["stdout"] if remote_commit["ok"] else "",
+                "ahead": ahead,
+                "behind": behind,
+                "has_update": behind > 0,
+            }
+        )
+        return status
 
 
 @app.post("/admin/update", dependencies=[Depends(require_admin)])

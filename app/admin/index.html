@@ -151,7 +151,37 @@
               <span>请输入完整的 http 或 https 提取接口地址，接口返回内容应为单个代理地址，例如 <code>1.2.3.4:20000</code>。查询提取接口本身不走代理；保存后，新任务会使用新地址。</span>
             </div>
           </section>
-
+          <section class="panel dashboard-update-panel" id="updatePanel">
+            <div class="panel-header">
+              <div>
+                <h2>在线更新</h2>
+                <p class="update-note">检查 GitHub 最新代码，确认后可在线拉取并重启服务。</p>
+              </div>
+              <div class="proxy-header-actions">
+                <span class="muted" id="updateState">未检查</span>
+                <button class="secondary-button" id="checkUpdate" type="button">检查更新</button>
+                <button class="primary-button" id="applyUpdate" type="button">立即更新</button>
+              </div>
+            </div>
+            <div class="update-status-grid">
+              <div>
+                <span>当前版本</span>
+                <strong id="updateCurrent">-</strong>
+              </div>
+              <div>
+                <span>远端版本</span>
+                <strong id="updateRemote">-</strong>
+              </div>
+              <div>
+                <span>分支</span>
+                <strong id="updateBranch">-</strong>
+              </div>
+              <div>
+                <span>状态</span>
+                <strong id="updateStatusText">-</strong>
+              </div>
+            </div>
+          </section>
         </section>
 
         <section class="view" id="submitView" data-title="提交任务">

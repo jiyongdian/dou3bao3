@@ -380,6 +380,43 @@ h2 {
   justify-content: flex-end;
 }
 
+
+.update-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.update-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.update-status-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.update-status-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.update-status-grid strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1724,6 +1761,10 @@ textarea:focus {
     grid-template-columns: 1fr;
     width: 100%;
     margin-left: 0;
+  }
+
+  .update-status-grid {
+    grid-template-columns: 1fr;
   }
 
   .toolbar-actions button,
