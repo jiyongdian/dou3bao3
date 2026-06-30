@@ -94,7 +94,12 @@ def ensure_storage() -> None:
         write_json(runtime, default_runtime())
 
 
-def create_task(prompt: str, ratio: str, owner_token_hash: str = "") -> dict[str, Any]:
+def create_task(
+    prompt: str,
+    ratio: str,
+    owner_token_hash: str = "",
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     ensure_storage()
     for _ in range(20):
         task_id = secrets.token_hex(16)
@@ -113,6 +118,8 @@ def create_task(prompt: str, ratio: str, owner_token_hash: str = "") -> dict[str
                 "updated_at": utc_now(),
                 "error": "",
             }
+            if extra:
+                meta.update(extra)
             write_json(meta_path(task_id), meta)
             return meta
     raise RuntimeError("could not allocate task id")

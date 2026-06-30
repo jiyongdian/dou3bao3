@@ -12,6 +12,32 @@
 
 生产环境建议在 Zeabur 环境变量中设置 `DOLA_API_TOKEN` 或 `API_TOKEN` 来覆盖默认管理员 Token。
 
+## VividAI / OpenAI compatible paths
+
+The service accepts VividAI-style OpenAI calls:
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/v1/models` | Returns the real model configured for this service, for example `seedance_v2.0`. |
+| `POST` | `/v1/images/generations` | Creates a video task through the image-generation compatible endpoint. `data[0].url` is the video content URL when ready. |
+| `POST` | `/v1/images/edits` | Accepts multipart reference images with `image`, `image[]`, `input_reference`, or URL/base64 fields. |
+| `POST` | `/v1/videos` | Creates an async video task and returns `id` / `status`. |
+| `GET` | `/v1/videos/{id}` | Queries task status. |
+| `GET` | `/v1/videos/{id}/content` | Streams the generated MP4 when status is completed. |
+
+`size` values such as `1280x720`, `720x1280`, and `2048x2048` are automatically mapped to the closest supported video ratio. `seconds` is accepted for compatibility but current generation duration is controlled by the upstream video service.
+
+Video parameter mapping:
+
+| Input field | Effect |
+| --- | --- |
+| `ratio` / `aspect_ratio` | Directly sets the video ratio when it is one of the supported ratios. |
+| `size` / `resolution` | Accepts values such as `1280x720`, maps to ratio, and is saved as task resolution. |
+| `width` + `height` | Builds a resolution value such as `1280x720`. |
+| `seconds` / `duration` / `duration_seconds` / `video_duration` | Sets per-task video duration, clamped to 1-60 seconds. |
+| `@alias` in prompt | Binds a fixed reference image from `data/reference_images/alias.png` or `data/references/alias.png`. |
+| `reference_alias` / `fixed_image` / `bind_image` | Explicitly binds a fixed reference image without putting `@alias` in the prompt. |
+
 ## Token 权限
 
 | Token 类型 | 用途 | 可调用范围 |

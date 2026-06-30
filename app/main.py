@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 import re
 import subprocess
@@ -15,8 +16,9 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from .config import (
     DEFAULT_RATIO,
@@ -66,23 +68,40 @@ RUNNING_COMMIT_FULL = None
 
 IMAGE_FORM_KEYS = {
     "image",
+    "image[]",
     "images",
+    "images[]",
     "file",
     "files",
     "reference_image",
+    "reference_image[]",
     "reference_images",
+    "reference_images[]",
+    "input_reference",
+    "input_reference[]",
+    "input_references",
+    "input_references[]",
 }
 IMAGE_VALUE_KEYS = {
     "image",
+    "image[]",
     "images",
+    "images[]",
     "image_url",
     "image_urls",
     "input_image",
     "input_images",
     "reference_image",
+    "reference_image[]",
     "reference_images",
+    "reference_images[]",
+    "input_reference",
+    "input_reference[]",
+    "input_references",
+    "input_references[]",
 }
-
+REFERENCE_BIND_PATTERN = re.compile(r"(?<!\w)@([\w.\-\u4e00-\u9fff]+)")
+REFERENCE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,6 +138,10 @@ async def no_store_admin_assets(request: Request, call_next):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ADMIN_DIR = Path(__file__).resolve().parent / "admin"
 API_DOCUMENTATION_PATH = PROJECT_ROOT / "API_DOCUMENTATION.md"
+REFERENCE_IMAGE_DIRS = [
+    PROJECT_ROOT / "data" / "reference_images",
+    PROJECT_ROOT / "data" / "references",
+]
 UPDATE_REMOTE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 UPDATE_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 DEFAULT_UPDATE_BRANCH = "main"
@@ -483,13 +506,24 @@ async def _image_bytes_from_ref(ref: str) -> tuple[bytes, str]:
     return base64.b64decode(value), ".png"
 
 
-async def _save_openai_images(task_id: str, uploads: list[Any], refs: list[str]) -> list[Path]:
+async def _save_openai_images(
+    task_id: str,
+    uploads: list[Any],
+    refs: list[str],
+    fixed_paths: list[Path] | None = None,
+) -> list[Path]:
     uploads = [item for item in uploads if item and getattr(item, "filename", "")]
     refs = [item for item in refs if str(item or "").strip()]
-    total = len(uploads) + len(refs)
+    fixed_paths = [item for item in (fixed_paths or []) if item and item.is_file()]
+    total = len(uploads) + len(refs) + len(fixed_paths)
     if total > load_settings().max_image_count:
         raise HTTPException(status_code=400, detail="too many images")
     saved_paths: list[Path] = []
+    for path in fixed_paths:
+        suffix = path.suffix.lower() or ".png"
+        target = images_dir(task_id) / f"{len(saved_paths) + 1:02d}{suffix}"
+        shutil.copyfile(path, target)
+        saved_paths.append(target)
     for upload in uploads:
         filename = Path(getattr(upload, "filename", "") or f"image_{len(saved_paths) + 1}.png").name
         suffix = Path(filename).suffix.lower() or ".png"
@@ -544,6 +578,14 @@ def _video_model_id() -> str:
     return load_settings().video_model
 
 
+def _known_model_ids() -> list[str]:
+    return [_video_model_id()]
+
+
+def _model_kind(model_id: str) -> str:
+    return "video"
+
+
 def _model_body(model: str | None = None) -> dict[str, Any]:
     model_id = model or _video_model_id()
     return {
@@ -554,13 +596,14 @@ def _model_body(model: str | None = None) -> dict[str, Any]:
         "root": model_id,
         "parent": None,
         "permission": [],
+        "type": _model_kind(model_id),
     }
 
 
 def _model_list() -> dict[str, Any]:
     return {
         "object": "list",
-        "data": [_model_body()],
+        "data": [_model_body(model_id) for model_id in _known_model_ids()],
     }
 
 
@@ -582,6 +625,155 @@ def _input_count(value: Any) -> int:
     if isinstance(value, list):
         return max(1, len(value))
     return 1
+
+
+def _ratio_from_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_RATIO
+    if text in VALID_RATIOS:
+        return text
+    size_match = re.fullmatch(r"(\d+)\s*[xX*]\s*(\d+)", text)
+    if size_match:
+        width = int(size_match.group(1))
+        height = int(size_match.group(2))
+        if width <= 0 or height <= 0:
+            return DEFAULT_RATIO
+        divisor = math.gcd(width, height)
+        ratio = f"{width // divisor}:{height // divisor}"
+        if ratio in VALID_RATIOS:
+            return ratio
+        if width == height:
+            return "1:1"
+        return "16:9" if width > height else "9:16"
+    lowered = text.lower()
+    if lowered in {"landscape", "horizontal"}:
+        return "16:9"
+    if lowered in {"portrait", "vertical"}:
+        return "9:16"
+    return DEFAULT_RATIO
+
+
+def _size_dimensions(value: Any) -> tuple[int, int] | None:
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(\d+)\s*[xX*]\s*(\d+)", text)
+    if not match:
+        return None
+    width = int(match.group(1))
+    height = int(match.group(2))
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _openai_ratio(payload: dict[str, Any]) -> str:
+    return _ratio_from_value(
+        payload.get("ratio")
+        or payload.get("aspect_ratio")
+        or payload.get("size")
+        or payload.get("resolution")
+    )
+
+
+def _video_duration(payload: dict[str, Any]) -> int | None:
+    value = (
+        payload.get("seconds")
+        or payload.get("duration")
+        or payload.get("duration_seconds")
+        or payload.get("video_duration")
+    )
+    if value in (None, ""):
+        return None
+    try:
+        duration = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="seconds/duration must be a number")
+    if duration < 1:
+        raise HTTPException(status_code=400, detail="seconds/duration must be at least 1")
+    return min(duration, 60)
+
+
+def _video_resolution(payload: dict[str, Any]) -> str:
+    for key in ("size", "resolution"):
+        raw = str(payload.get(key) or "").strip()
+        if _size_dimensions(raw):
+            return raw.lower().replace("*", "x")
+    width = payload.get("width")
+    height = payload.get("height")
+    if width is not None and height is not None:
+        try:
+            w = int(float(str(width).strip()))
+            h = int(float(str(height).strip()))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="width/height must be numbers")
+        if w > 0 and h > 0:
+            return f"{w}x{h}"
+    return ""
+
+
+def _video_options(payload: dict[str, Any], ratio: str) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "video_model": _video_model_id(),
+        "requested_model": str(payload.get("model") or "").strip(),
+    }
+    duration = _video_duration(payload)
+    if duration is not None:
+        options["video_duration"] = duration
+    resolution = _video_resolution(payload)
+    if resolution:
+        options["resolution"] = resolution
+    size = str(payload.get("size") or "").strip()
+    if size:
+        options["size"] = size
+    options["normalized_ratio"] = ratio
+    return options
+
+
+def _payload_aliases(value: Any) -> list[str]:
+    aliases: list[str] = []
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            aliases.append(text[1:] if text.startswith("@") else text)
+    elif isinstance(value, list):
+        for item in value:
+            aliases.extend(_payload_aliases(item))
+    return aliases
+
+
+def _reference_aliases(prompt: str, payload: dict[str, Any]) -> list[str]:
+    aliases: list[str] = []
+    for key in ("reference_alias", "reference_aliases", "fixed_image", "fixed_images", "bind_image", "bind_images"):
+        aliases.extend(_payload_aliases(payload.get(key)))
+    aliases.extend(match.group(1) for match in REFERENCE_BIND_PATTERN.finditer(prompt or ""))
+    cleaned: list[str] = []
+    for alias in aliases:
+        value = alias.strip().lstrip("@")
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
+def _resolve_reference_image(alias: str) -> Path:
+    name = alias.strip().lstrip("@")
+    if not name or "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=400, detail=f"invalid fixed reference image alias: {alias}")
+    for root in REFERENCE_IMAGE_DIRS:
+        if not root.exists():
+            continue
+        candidate = root / name
+        if candidate.is_file() and candidate.suffix.lower() in REFERENCE_IMAGE_EXTENSIONS:
+            return candidate
+        for suffix in REFERENCE_IMAGE_EXTENSIONS:
+            candidate = root / f"{name}{suffix}"
+            if candidate.is_file():
+                return candidate
+    raise HTTPException(status_code=400, detail=f"fixed reference image not found: {alias}")
+
+
+def _fixed_reference_paths(prompt: str, payload: dict[str, Any]) -> list[Path]:
+    return [_resolve_reference_image(alias) for alias in _reference_aliases(prompt, payload)]
+
 
 
 def _openai_response_body(
@@ -631,6 +823,9 @@ def _openai_response_body(
             "status": status,
             "url": video_url,
             "content_url": video_url,
+            "ratio": str(meta.get("ratio") or ""),
+            "resolution": str(meta.get("resolution") or ""),
+            "duration": meta.get("video_duration"),
         },
     }
 
@@ -655,6 +850,9 @@ def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     status = str(response.get("status") or "queued")
     body = {
         "id": task_id,
+        "task_id": task_id,
+        "video_id": task_id,
+        "response_id": task_id,
         "object": "video.generation",
         "created": int(response.get("created_at") or time.time()),
         "model": str(response.get("model") or _video_model_id()),
@@ -663,6 +861,7 @@ def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
         "content_url": video_url,
         "video": {
             "id": task_id,
+            "task_id": task_id,
             "status": status,
             "url": video_url,
             "content_url": video_url,
@@ -671,6 +870,19 @@ def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     }
     if response.get("error"):
         body["error"] = response["error"]
+    return body
+
+
+def _video_task_body(response: dict[str, Any]) -> dict[str, Any]:
+    body = _video_generation_body(response)
+    body["format"] = "mp4"
+    body["metadata"] = {
+        "source": "dfyuefetch",
+        "content_url": body.get("content_url") or "",
+        "ratio": str(body.get("video", {}).get("ratio") or ""),
+        "resolution": str(body.get("video", {}).get("resolution") or ""),
+        "duration": body.get("video", {}).get("duration"),
+    }
     return body
 
 
@@ -718,8 +930,10 @@ async def _create_openai_task(
     access: AccessContext,
     prompt: str,
     ratio: str,
+    options: dict[str, Any] | None = None,
     uploads: list[Any] | None = None,
     image_refs: list[str] | None = None,
+    fixed_paths: list[Path] | None = None,
 ) -> dict[str, Any]:
     assert create_sem is not None
     async with create_sem:
@@ -737,13 +951,18 @@ async def _create_openai_task(
             raise HTTPException(status_code=429, detail=str(exc))
 
         try:
-            meta = create_task(prompt, ratio, owner_token_hash=access.token_hash if access.is_temp else "")
+            meta = create_task(
+                prompt,
+                ratio,
+                owner_token_hash=access.token_hash if access.is_temp else "",
+                extra=options or {},
+            )
         except Exception:
             if reserved_access:
                 refund_temp_quota(reserved_access)
             raise
         try:
-            await _save_openai_images(meta["id"], uploads or [], image_refs or [])
+            await _save_openai_images(meta["id"], uploads or [], image_refs or [], fixed_paths or [])
         except Exception:
             if reserved_access:
                 refund_temp_quota(reserved_access)
@@ -1015,34 +1234,34 @@ async def temp_tokens_delete(token_id: str):
     return {"ok": True}
 
 
-@app.get("/models", dependencies=[Depends(require_token)])
-@app.get("/v1/models", dependencies=[Depends(require_token)])
-@app.get("/v1/v1/models", dependencies=[Depends(require_token)])
+@app.get("/models")
+@app.get("/v1/models")
+@app.get("/v1/v1/models")
 async def openai_models():
     return _model_list()
 
 
-@app.get("/models/{model_id}", dependencies=[Depends(require_token)])
-@app.get("/v1/models/{model_id}", dependencies=[Depends(require_token)])
-@app.get("/v1/v1/models/{model_id}", dependencies=[Depends(require_token)])
+@app.get("/models/{model_id}")
+@app.get("/v1/models/{model_id}")
+@app.get("/v1/v1/models/{model_id}")
 async def openai_model(model_id: str):
-    if model_id != _video_model_id():
+    if model_id not in _known_model_ids():
         return _openai_error(f"model '{model_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(model_id)
 
 
-@app.get("/engines", dependencies=[Depends(require_token)])
-@app.get("/v1/engines", dependencies=[Depends(require_token)])
-@app.get("/v1/v1/engines", dependencies=[Depends(require_token)])
+@app.get("/engines")
+@app.get("/v1/engines")
+@app.get("/v1/v1/engines")
 async def openai_engines():
     return _model_list()
 
 
-@app.get("/engines/{engine_id}", dependencies=[Depends(require_token)])
-@app.get("/v1/engines/{engine_id}", dependencies=[Depends(require_token)])
-@app.get("/v1/v1/engines/{engine_id}", dependencies=[Depends(require_token)])
+@app.get("/engines/{engine_id}")
+@app.get("/v1/engines/{engine_id}")
+@app.get("/v1/v1/engines/{engine_id}")
 async def openai_engine(engine_id: str):
-    if engine_id != _video_model_id():
+    if engine_id not in _known_model_ids():
         return _openai_error(f"engine '{engine_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(engine_id)
 
@@ -1084,14 +1303,22 @@ async def openai_create_response(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
 
-    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    meta = await _create_openai_task(
+        access,
+        prompt,
+        ratio,
+        _video_options(payload, ratio),
+        uploads,
+        _collect_image_refs(payload),
+        _fixed_reference_paths(prompt, payload),
+    )
     if wait:
         return await _wait_openai_task(
             access=access,
@@ -1111,14 +1338,22 @@ async def openai_chat_completions(
     prompt = _openai_prompt(payload)
     if not prompt:
         prompt = "test video generation"
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
 
-    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    meta = await _create_openai_task(
+        access,
+        prompt,
+        ratio,
+        _video_options(payload, ratio),
+        uploads,
+        _collect_image_refs(payload),
+        _fixed_reference_paths(prompt, payload),
+    )
     if wait:
         response = await _wait_openai_task(
             access=access,
@@ -1139,13 +1374,21 @@ async def openai_video_generations(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
-    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    meta = await _create_openai_task(
+        access,
+        prompt,
+        ratio,
+        _video_options(payload, ratio),
+        uploads,
+        _collect_image_refs(payload),
+        _fixed_reference_paths(prompt, payload),
+    )
     if wait:
         response = await _wait_openai_task(
             access=access,
@@ -1155,7 +1398,19 @@ async def openai_video_generations(
         )
     else:
         response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
-    return _video_generation_body(response)
+    return _video_task_body(response)
+
+
+@app.get("/v1/video/generations/{task_id}", dependencies=[Depends(require_token)])
+@app.get("/v1/videos/generations/{task_id}", dependencies=[Depends(require_token)])
+async def openai_video_generation_status(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+    task_id: str,
+):
+    meta, result = await _query_openai_task(access, task_id)
+    response = _openai_response_body(request=request, task_id=task_id, meta=meta, result=result)
+    return _video_task_body(response)
 
 
 @app.post("/v1/images/generations", dependencies=[Depends(require_token)])
@@ -1165,13 +1420,55 @@ async def openai_image_generations(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
-    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    meta = await _create_openai_task(
+        access,
+        prompt,
+        ratio,
+        _video_options(payload, ratio),
+        uploads,
+        _collect_image_refs(payload),
+        _fixed_reference_paths(prompt, payload),
+    )
+    if wait:
+        response = await _wait_openai_task(
+            access=access,
+            request=request,
+            task_id=meta["id"],
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+    return _image_generation_body(response)
+
+
+@app.post("/v1/images/edits", dependencies=[Depends(require_token)])
+async def openai_image_edits(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+):
+    payload, uploads = await _openai_payload_and_uploads(request)
+    prompt = _openai_prompt(payload)
+    ratio = _openai_ratio(payload)
+    wait = _truthy(payload.get("wait"), False)
+    try:
+        timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
+    meta = await _create_openai_task(
+        access,
+        prompt,
+        ratio,
+        _video_options(payload, ratio),
+        uploads,
+        _collect_image_refs(payload),
+        _fixed_reference_paths(prompt, payload),
+    )
     if wait:
         response = await _wait_openai_task(
             access=access,
@@ -1221,11 +1518,35 @@ async def openai_videos(
 ):
     payload: dict[str, Any] = {}
     if request.method != "GET":
-        payload = await _openai_payload(request)
+        payload, uploads = await _openai_payload_and_uploads(request)
+        task_id = str(
+            payload.get("id")
+            or payload.get("video_id")
+            or payload.get("response_id")
+            or payload.get("task_id")
+            or ""
+        ).strip()
+        if not task_id:
+            prompt = _openai_prompt(payload)
+            if not prompt:
+                raise HTTPException(status_code=400, detail="input is required")
+            ratio = _openai_ratio(payload)
+            meta = await _create_openai_task(
+                access,
+                prompt,
+                ratio,
+                _video_options(payload, ratio),
+                uploads,
+                _collect_image_refs(payload),
+                _fixed_reference_paths(prompt, payload),
+            )
+            response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+            return _video_task_body(response)
     task_id = str(
         id
         or video_id
         or response_id
+        or payload.get("task_id")
         or payload.get("id")
         or payload.get("video_id")
         or payload.get("response_id")
@@ -1235,7 +1556,7 @@ async def openai_videos(
         return _video_list_body(request, access)
     meta, result = await _query_openai_task(access, task_id)
     response = _openai_response_body(request=request, task_id=task_id, meta=meta, result=result)
-    return _video_generation_body(response)
+    return _video_task_body(response)
 
 
 @app.get("/v1/videos/{video_id}", dependencies=[Depends(require_token)])
@@ -1247,7 +1568,7 @@ async def openai_video(
 ):
     meta, result = await _query_openai_task(access, video_id)
     response = _openai_response_body(request=request, task_id=video_id, meta=meta, result=result)
-    return _video_generation_body(response)
+    return _video_task_body(response)
 
 
 @app.get("/v1/videos/{video_id}/content", dependencies=[Depends(require_token)])
@@ -1258,7 +1579,28 @@ async def openai_video_content(access: Annotated[AccessContext, Depends(require_
     url = str(result.get("url") or "")
     if str(result.get("code") or "") != "2" or not url:
         raise HTTPException(status_code=409, detail="video is not ready")
-    return RedirectResponse(url=url, status_code=302)
+    client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0), follow_redirects=True, trust_env=False)
+    try:
+        upstream = await client.send(client.build_request("GET", url), stream=True)
+        upstream.raise_for_status()
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"failed to fetch video content: {exc}")
+
+    async def close_upstream() -> None:
+        await upstream.aclose()
+        await client.aclose()
+
+    headers: dict[str, str] = {}
+    content_length = upstream.headers.get("content-length")
+    if content_length:
+        headers["Content-Length"] = content_length
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        media_type=upstream.headers.get("content-type") or "video/mp4",
+        headers=headers,
+        background=BackgroundTask(close_upstream),
+    )
 
 
 @app.api_route(
@@ -1278,18 +1620,30 @@ async def submit_task(
     access: Annotated[AccessContext, Depends(require_token)],
     prompt: Annotated[str, Form()],
     ratio: Annotated[str, Form()] = DEFAULT_RATIO,
+    size: Annotated[str | None, Form()] = None,
+    resolution: Annotated[str | None, Form()] = None,
+    seconds: Annotated[str | None, Form()] = None,
+    duration: Annotated[str | None, Form()] = None,
     images: Annotated[list[UploadFile] | None, File(alias="images")] = None,
 ):
     assert create_sem is not None
     async with create_sem:
         prompt = repair_text((prompt or "").strip())
-        ratio = (ratio or DEFAULT_RATIO).strip()
+        payload = {
+            "ratio": ratio,
+            "size": size,
+            "resolution": resolution,
+            "seconds": seconds,
+            "duration": duration,
+        }
+        ratio = _openai_ratio(payload)
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt is required")
         if ratio not in VALID_RATIOS:
             raise HTTPException(status_code=400, detail="invalid ratio")
         uploads = [item for item in (images or []) if item and item.filename]
-        if len(uploads) > load_settings().max_image_count:
+        fixed_paths = _fixed_reference_paths(prompt, payload)
+        if len(uploads) + len(fixed_paths) > load_settings().max_image_count:
             raise HTTPException(status_code=400, detail="too many images")
 
         reserved_access: AccessContext | None = None
@@ -1299,17 +1653,27 @@ async def submit_task(
             raise HTTPException(status_code=429, detail=str(exc))
 
         try:
-            meta = create_task(prompt, ratio, owner_token_hash=access.token_hash if access.is_temp else "")
+            meta = create_task(
+                prompt,
+                ratio,
+                owner_token_hash=access.token_hash if access.is_temp else "",
+                extra=_video_options(payload, ratio),
+            )
         except Exception:
             if reserved_access:
                 refund_temp_quota(reserved_access)
             raise
         saved_paths: list[Path] = []
         try:
+            for path in fixed_paths:
+                suffix = path.suffix.lower() or ".png"
+                target = images_dir(meta["id"]) / f"{len(saved_paths) + 1:02d}{suffix}"
+                shutil.copyfile(path, target)
+                saved_paths.append(target)
             for index, upload in enumerate(uploads, start=1):
                 filename = Path(upload.filename or f"image_{index}.png").name
                 suffix = Path(filename).suffix.lower() or ".png"
-                target = images_dir(meta["id"]) / f"{index:02d}{suffix}"
+                target = images_dir(meta["id"]) / f"{len(saved_paths) + 1:02d}{suffix}"
                 with target.open("wb") as out:
                     shutil.copyfileobj(upload.file, out)
                 saved_paths.append(target)

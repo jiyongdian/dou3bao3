@@ -71,7 +71,14 @@ class WorkerManager:
             set_active_tasks(self._claimed)
             try:
                 meta = get_meta(task_id)
-                runner = DolaFetchAutomation(task_id, str(meta.get("prompt") or ""), str(meta.get("ratio") or "9:16"))
+                runner = DolaFetchAutomation(
+                    task_id,
+                    str(meta.get("prompt") or ""),
+                    str(meta.get("ratio") or "9:16"),
+                    duration=int(meta.get("video_duration") or 0) or None,
+                    model=str(meta.get("video_model") or ""),
+                    resolution=str(meta.get("resolution") or ""),
+                )
                 success = await runner.run()
                 if not success:
                     await asyncio.sleep(2)

@@ -191,7 +191,7 @@ async ({body}) => {
 
 
 SUBMIT_SCRIPT = r"""
-async ({prompt, ratio, duration, model, attachments}) => {
+async ({prompt, ratio, duration, model, resolution, attachments}) => {
   function uuid() {
     return crypto.randomUUID ? crypto.randomUUID() :
       "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
@@ -285,7 +285,7 @@ async ({prompt, ratio, duration, model, attachments}) => {
   function buildPayload({localConversationId}) {
     const collectionId = uuid();
     const uniqueKey = uuid();
-    const text = `生成视频：${prompt}${ratio ? `，${ratio}` : ""}`;
+    const text = `生成视频：${prompt}${ratio ? `，${ratio}` : ""}${resolution ? `，${resolution}` : ""}${duration ? `，${duration}秒` : ""}`;
     const messages = [];
     if (attachments && attachments.length) {
       messages.push({
@@ -391,7 +391,7 @@ async ({prompt, ratio, duration, model, attachments}) => {
       },
       chat_ability: {
         ability_type: 17,
-        ability_param: JSON.stringify({ ratio, model, duration: Number(duration) })
+        ability_param: JSON.stringify({ ratio, model, duration: Number(duration), resolution })
       },
       user_context: [],
       ext: {
@@ -598,11 +598,23 @@ async def _fetch_json(client: httpx.AsyncClient, url: str, *, label: str, **kwar
 
 
 class DolaFetchAutomation:
-    def __init__(self, task_id: str, prompt: str, ratio: str):
+    def __init__(
+        self,
+        task_id: str,
+        prompt: str,
+        ratio: str,
+        *,
+        duration: int | None = None,
+        model: str = "",
+        resolution: str = "",
+    ):
         self.task_id = task_id
         self.prompt = prompt
         self.ratio = ratio
         self.settings = load_settings()
+        self.duration = duration or self.settings.video_duration
+        self.model = model or self.settings.video_model
+        self.resolution = resolution
         self.uploaded_images: list[dict[str, Any]] = []
 
     async def run(self) -> bool:
@@ -659,8 +671,9 @@ class DolaFetchAutomation:
                     {
                         "prompt": self.prompt,
                         "ratio": self.ratio,
-                        "duration": self.settings.video_duration,
-                        "model": self.settings.video_model,
+                        "duration": self.duration,
+                        "model": self.model,
+                        "resolution": self.resolution,
                         "attachments": attachments,
                     },
                 )
