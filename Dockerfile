@@ -1,8 +1,6 @@
 FROM python:3.12-slim
 
-# Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
     curl \
     fonts-liberation \
     libasound2 \
@@ -25,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     libxss1 \
     libxtst6 \
+    wget \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,14 +31,13 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Playwright browsers
 RUN playwright install --with-deps chromium
 
 COPY . .
-
-# Create data directory
 RUN mkdir -p /app/data
+
+ENV DOLA_DATA_DIR=/app/data
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8088
 

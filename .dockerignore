@@ -12,7 +12,10 @@ build/
 .git/
 .env
 .env.*
-*.json
-!config.example.json
-!.env.example
+debug.log
+*.log
+*.sqlite
+*.db
+*.zip
 .DS_Store
+Thumbs.db

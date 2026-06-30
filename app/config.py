@@ -28,6 +28,11 @@ DEFAULT_PROXY_API_URL = os.environ.get(
     "DOLA_DEFAULT_PROXY_API_URL",
     "https://example.com/get-proxy?num=1&type=txt",
 )
+DEFAULT_API_TOKEN = (
+    os.environ.get("DOLA_API_TOKEN")
+    or os.environ.get("API_TOKEN")
+    or ""
+).strip()
 VALID_PROXY_API_SCHEMES = {"http", "https"}
 VALID_PROXY_SERVER_SCHEMES = {"http", "https", "socks5", "socks5h"}
 _CONFIG_LOCK = threading.Lock()
@@ -57,7 +62,7 @@ def recommended_browser_workers() -> int:
 
 def default_config() -> dict[str, Any]:
     return {
-        "api_token": "",
+        "api_token": DEFAULT_API_TOKEN,
         "host": "0.0.0.0",
         "port": 8088,
         "browser_workers": recommended_browser_workers(),
@@ -94,6 +99,9 @@ def _load_config_dict() -> dict[str, Any]:
     defaults = default_config()
     data = {key: raw.get(key, value) for key, value in defaults.items()}
     changed = data != raw
+    if DEFAULT_API_TOKEN and data.get("api_token") != DEFAULT_API_TOKEN:
+        data["api_token"] = DEFAULT_API_TOKEN
+        changed = True
     if not data.get("api_token"):
         data["api_token"] = secrets.token_urlsafe(32)
         changed = True
@@ -144,6 +152,8 @@ def update_config(updates: Mapping[str, Any]) -> dict[str, Any]:
 
         data = {key: raw.get(key, value) for key, value in defaults.items()}
         data.update(updates)
+        if DEFAULT_API_TOKEN:
+            data["api_token"] = DEFAULT_API_TOKEN
         if not data.get("api_token"):
             data["api_token"] = secrets.token_urlsafe(32)
 
