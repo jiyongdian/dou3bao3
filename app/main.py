@@ -101,26 +101,6 @@ IMAGE_VALUE_KEYS = {
     "input_references[]",
 }
 
-VIVIDAI_IMAGE_MODELS = {
-    "gpt-image-2",
-    "imagine-1.5pro",
-    "imagine-1.5",
-    "flux-klein-2",
-    "seedream-4.5",
-    "nano-banana-2",
-    "flux-kontext-max",
-    "firefly-image-5",
-    "firefly-gpt-image-2",
-}
-VIVIDAI_VIDEO_MODELS = {
-    "grok-video",
-    "runway-gen4-turbo",
-    "firefly-video",
-    "firefly-ray",
-    "gemini-veo31",
-}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
@@ -582,13 +562,10 @@ def _video_model_id() -> str:
 
 
 def _known_model_ids() -> list[str]:
-    ids = [_video_model_id(), *sorted(VIVIDAI_VIDEO_MODELS), *sorted(VIVIDAI_IMAGE_MODELS)]
-    return list(dict.fromkeys(model for model in ids if model))
+    return [_video_model_id()]
 
 
 def _model_kind(model_id: str) -> str:
-    if model_id in VIVIDAI_IMAGE_MODELS:
-        return "image"
     return "video"
 
 
@@ -598,7 +575,7 @@ def _model_body(model: str | None = None) -> dict[str, Any]:
         "id": model_id,
         "object": "model",
         "created": 0,
-        "owned_by": "vividai" if model_id in VIVIDAI_IMAGE_MODELS or model_id in VIVIDAI_VIDEO_MODELS else "dola",
+        "owned_by": "dola",
         "root": model_id,
         "parent": None,
         "permission": [],

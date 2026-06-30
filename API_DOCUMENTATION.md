@@ -18,7 +18,7 @@ The service accepts VividAI-style OpenAI calls:
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/v1/models` | Returns `seedance_v2.0` plus VividAI model IDs such as `grok-video`, `runway-gen4-turbo`, `gpt-image-2`. |
+| `GET` | `/v1/models` | Returns the real model configured for this service, for example `seedance_v2.0`. |
 | `POST` | `/v1/images/generations` | Creates a video task through the image-generation compatible endpoint. `data[0].url` is the video content URL when ready. |
 | `POST` | `/v1/images/edits` | Accepts multipart reference images with `image`, `image[]`, `input_reference`, or URL/base64 fields. |
 | `POST` | `/v1/videos` | Creates an async video task and returns `id` / `status`. |
