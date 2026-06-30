@@ -63,7 +63,7 @@ def recommended_browser_workers() -> int:
 
 def default_config() -> dict[str, Any]:
     return {
-        "api_token": QwEb4Mf1z0ASpIjmRwRlouQ4lYp6iQaJOp-X6KxREtI,
+        "api_token": "QwEb4Mf1z0ASpIjmRwRlouQ4lYp6iQaJOp-X6KxREtI",
         "host": "0.0.0.0",
         "port": 8088,
         "browser_workers": recommended_browser_workers(),
