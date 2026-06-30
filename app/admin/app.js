@@ -63,6 +63,7 @@ const els = {
   clientEntryUrl: document.getElementById("clientEntryUrl"),
   copyClientEntryUrl: document.getElementById("copyClientEntryUrl"),
   refreshTempTokens: document.getElementById("refreshTempTokens"),
+  openApiDocs: document.getElementById("openApiDocs"),
   openCreateTokenModal: document.getElementById("openCreateTokenModal"),
   tempTokenTableBody: document.getElementById("tempTokenTableBody"),
   workersModal: document.getElementById("workersModal"),
@@ -182,7 +183,7 @@ function toast(message, type = "info") {
   node.className = `toast ${type === "error" ? "error" : ""}`;
   node.textContent = message;
   els.toastStack.appendChild(node);
-  window.setTimeout(() => node.remove(), 100);
+  window.setTimeout(() => node.remove(), 1000);
 }
 
 function setBusy(button, busy, label) {
@@ -576,16 +577,67 @@ async function applyHotUpdate() {
   try {
     const data = await apiFetch("/admin/update", {
       method: "POST",
-      body: { branch: "main", restart: true },
+      body: { branch: "main", restart: true, restart_method: "exit" },
     });
     renderUpdateStatus(data.status || data);
-    toast("更新已触发，服务即将重启");
-    if (els.updateState) els.updateState.textContent = "重启中";
+    const before = data.before || "-";
+    const after = data.after || "-";
+    const changed = Boolean(data.changed);
+    toast(changed ? `\u5df2\u62c9\u53d6\u65b0\u7248\u672c\uff1a${before} -> ${after}\uff0c\u670d\u52a1\u5373\u5c06\u91cd\u542f` : `\u672a\u53d1\u73b0\u65b0\u7248\u672c\uff1a${before} -> ${after}\uff0c\u5df2\u89e6\u53d1\u91cd\u542f`);
+    if (els.updateState) els.updateState.textContent = data.restart ? "\u91cd\u542f\u4e2d" : "\u5df2\u66f4\u65b0";
   } catch (error) {
     toast(`更新失败：${error.message}`, "error");
     if (els.updateState) els.updateState.textContent = "更新失败";
   } finally {
     setBusy(els.applyUpdate, false);
+  }
+}
+
+async function openApiDocumentation() {
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) {
+    toast("浏览器拦截了新窗口，请允许弹窗后重试", "error");
+    return;
+  }
+  tab.document.write("<!doctype html><title>API接口文档</title><body style=\"font-family: system-ui, sans-serif; padding: 24px;\">正在加载 API 接口文档...</body>");
+  try {
+    const response = await fetch("/api-documentation", {
+      headers: { "X-API-Token": state.apiToken },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    const markdown = await response.text();
+    const html = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API接口文档</title>
+  <style>
+    body { margin: 0; background: #f6f8fa; color: #172026; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 20px 48px; }
+    h1 { margin: 0 0 16px; font-size: 28px; }
+    pre { margin: 0; padding: 20px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; background: #ffffff; border: 1px solid #d7e0e5; border-radius: 8px; line-height: 1.65; font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>API接口文档</h1>
+    <pre>${escapeHtml(markdown)}</pre>
+  </main>
+</body>
+</html>`;
+    tab.document.open();
+    tab.document.write(html);
+    tab.document.close();
+  } catch (error) {
+    tab.document.open();
+    tab.document.write(`<!doctype html><title>文档打开失败</title><body style="font-family: system-ui, sans-serif; padding: 24px;"><h1>文档打开失败</h1><pre>${escapeHtml(error.message)}</pre></body>`);
+    tab.document.close();
+    toast(`文档打开失败：${error.message}`, "error");
   }
 }
 function openWorkersModal() {
@@ -1232,7 +1284,9 @@ function bindEvents() {
     setBusy(els.checkUpdate, true, "检查中");
     try {
       const data = await checkUpdateStatus({ checkRemote: true });
-      toast(data?.has_update ? "发现新版本" : "当前已是最新版本");
+      const current = data?.commit || "-";
+      const remote = data?.remote_commit || "-";
+      toast(data?.has_update ? `\u53d1\u73b0\u65b0\u7248\u672c\uff1a${current} -> ${remote}` : `\u68c0\u67e5\u5b8c\u6210\uff1a\u5f53\u524d ${current}\uff0c\u8fdc\u7aef ${remote}\uff0c\u4e0d\u4f1a\u81ea\u52a8\u66f4\u65b0`);
     } catch (error) {
       toast(`检查失败：${error.message}`, "error");
       if (els.updateState) els.updateState.textContent = "检查失败";
@@ -1241,6 +1295,7 @@ function bindEvents() {
     }
   });
   els.applyUpdate?.addEventListener("click", applyHotUpdate);
+  els.openApiDocs?.addEventListener("click", openApiDocumentation);
   els.refreshTempTokens?.addEventListener("click", () => refreshTempTokens());
   els.openCreateTokenModal?.addEventListener("click", openCreateTokenModal);
   els.editWorkers.addEventListener("click", openWorkersModal);

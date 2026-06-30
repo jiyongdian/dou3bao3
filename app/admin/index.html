@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DFYue Fetch 管理面板</title>
-    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260628-client-entry-1" />
+    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260630-admin-cache-2" />
   </head>
   <body>
     <script>
@@ -79,7 +79,7 @@
           </button>
           <button class="nav-item" type="button" data-view="docs">
             <span class="nav-symbol">05</span>
-            <span>接口说明</span>
+            <span>API接口文档</span>
           </button>
         </nav>
 
@@ -313,218 +313,18 @@
           </section>
         </section>
 
-        <section class="view" id="docsView" data-title="接口说明">
-          <div class="docs-layout">
-            <section class="panel docs-panel">
-              <div class="docs-header">
-                <h2>API 接口说明</h2>
-                <span class="docs-chip">Header: X-API-Token</span>
-              </div>
+        <section class="view" id="docsView" data-title="API接口文档">
+          <section class="panel docs-panel docs-entry-panel">
+            <div class="docs-header">
+              <h2>API接口文档</h2>
+              <span class="docs-chip">OpenAI 兼容</span>
+            </div>
 
-              <div class="api-list">
-                <article class="api-item">
-                  <div>
-                    <span class="method get">GET</span>
-                    <code>/health</code>
-                  </div>
-                  <p>检查服务状态，返回服务是否可用、并发配置和正在执行的任务 ID。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/health</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"ok":true,"browser_workers":4,"active":[]}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method get">GET</span>
-                    <code>/config/proxy-api</code>
-                  </div>
-                  <p>读取当前代理提取 API 配置。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/config/proxy-api</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"proxy_api_url":"https://example.com/get","proxy_api_scheme":"http","proxy_api_timeout_seconds":20}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method get">GET</span>
-                    <code>/config/workers</code>
-                  </div>
-                  <p>读取当前并发配置。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/config/workers</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"browser_workers":4}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method post">POST</span>
-                    <code>/config/workers</code>
-                  </div>
-                  <p>修改并发数量。JSON 示例：<code>{"browser_workers":4}</code>，范围 1 - 5。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -X POST -H "X-API-Token: $API_TOKEN" -H "Content-Type: application/json" -d '{"browser_workers":4}' http://SERVER_IP:8088/config/workers</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"ok":true,"browser_workers":4}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method post">POST</span>
-                    <code>/config/proxy-api</code>
-                  </div>
-                  <p>修改代理提取 API。JSON 示例：<code>{"proxy_api_url":"https://example.com/get","proxy_api_scheme":"http"}</code></p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -X POST -H "X-API-Token: $API_TOKEN" -H "Content-Type: application/json" -d '{"proxy_api_url":"https://example.com/get","proxy_api_scheme":"http"}' http://SERVER_IP:8088/config/proxy-api</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"ok":true,"proxy_api_url":"https://example.com/get","proxy_api_scheme":"http","proxy_api_timeout_seconds":20}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method post">POST</span>
-                    <code>/tasks</code>
-                  </div>
-                  <p>提交任务，使用 multipart/form-data，字段：<code>prompt</code>、<code>ratio</code>、<code>images</code>。图片最多按后端配置接收。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -X POST -H "X-API-Token: $API_TOKEN" -F "prompt=一个人在奔跑健身" -F "ratio=9:16" http://SERVER_IP:8088/tasks</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"id":"0123456789abcdef0123456789abcdef"}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method get">GET</span>
-                    <code>/tasks</code>
-                  </div>
-                  <p>获取当前任务列表。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/tasks</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"tasks":[{"id":"0123456789abcdef0123456789abcdef","prompt_preview":"一个人在奔跑健身","status":"success","image_count":0,"error":""}]}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method delete">DELETE</span>
-                    <code>/tasks</code>
-                  </div>
-                  <p>批量清空未在生成中的任务，生成中的任务会自动保留。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -X DELETE -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/tasks</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"ok":true,"deleted":10,"skipped":[]}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method get">GET</span>
-                    <code>/tasks/{task_id}</code>
-                  </div>
-                  <p>查询单个任务状态和结果。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/tasks/0123456789abcdef0123456789abcdef</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"code":"2","text":"","url":"https://example.com/video.mp4"}</code>
-                  </div>
-                </article>
-                <article class="api-item">
-                  <div>
-                    <span class="method delete">DELETE</span>
-                    <code>/tasks/{task_id}</code>
-                  </div>
-                  <p>删除未在生成中的任务；生成中任务会返回不可取消。</p>
-                  <div class="api-example">
-                    <span>请求示例</span>
-                    <code>curl -X DELETE -H "X-API-Token: $API_TOKEN" http://SERVER_IP:8088/tasks/0123456789abcdef0123456789abcdef</code>
-                  </div>
-                  <div class="api-example">
-                    <span>响应示例</span>
-                    <code>{"ok":true}</code>
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <section class="panel docs-panel">
-              <div class="docs-header">
-                <h2>服务器各项命令</h2>
-                <span class="docs-chip">服务名: dola-fetch-service</span>
-              </div>
-
-              <div class="command-list">
-                <article class="command-item">
-                  <span>查看服务状态</span>
-                  <code>systemctl --no-pager --full status dola-fetch-service</code>
-                </article>
-                <article class="command-item">
-                  <span>重启服务</span>
-                  <code>systemctl restart dola-fetch-service</code>
-                </article>
-                <article class="command-item">
-                  <span>停止服务</span>
-                  <code>systemctl stop dola-fetch-service</code>
-                </article>
-                <article class="command-item">
-                  <span>启动服务</span>
-                  <code>systemctl start dola-fetch-service</code>
-                </article>
-                <article class="command-item">
-                  <span>查看实时日志</span>
-                  <code>journalctl -u dola-fetch-service -f --no-pager</code>
-                </article>
-                <article class="command-item">
-                  <span>查看最近日志</span>
-                  <code>journalctl -u dola-fetch-service -n 200 --no-pager</code>
-                </article>
-                <article class="command-item">
-                  <span>查看配置文件</span>
-                  <code>cat /var/lib/dola-fetch-service/config.json</code>
-                </article>
-                <article class="command-item">
-                  <span>查看 Token</span>
-                  <code>/opt/dola-fetch-service/scripts/show-token.sh</code>
-                </article>
-                <article class="command-item">
-                  <span>重置 Token</span>
-                  <code>/opt/dola-fetch-service/scripts/reset-token.sh</code>
-                </article>
-                <article class="command-item">
-                  <span>清空任务数据</span>
-                  <code>find /var/lib/dola-fetch-service/tasks -mindepth 1 -maxdepth 1 -exec rm -rf {} +</code>
-                </article>
-              </div>
-            </section>
-          </div>
+            <div class="docs-entry">
+              <p>打开完整接口文档，查看模型名称、Token 调用方式、视频生成、参考图、任务查询、视频下载和临时 Token 接入示例。</p>
+              <button class="primary-button docs-open-button" id="openApiDocs" type="button">API接口文档</button>
+            </div>
+          </section>
         </section>
       </main>
     </div>
@@ -602,7 +402,7 @@
         </div>
       </section>
     </div>
-    <script src="/admin/assets/runtime-config.js?v=20260628-client-entry-1"></script>
-    <script src="/admin/assets/app.js?v=20260628-client-entry-1"></script>
+    <script src="/admin/assets/runtime-config.js?v=20260630-admin-cache-2"></script>
+    <script src="/admin/assets/app.js?v=20260630-admin-cache-2"></script>
   </body>
 </html>

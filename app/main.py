@@ -61,6 +61,8 @@ query_sem = None
 list_sem = None
 delete_sem = None
 update_lock = None
+RUNNING_COMMIT_SHORT = None
+RUNNING_COMMIT_FULL = None
 
 IMAGE_FORM_KEYS = {
     "image",
@@ -102,14 +104,28 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Fetch Task Service", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def no_store_admin_assets(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/admin/assets/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ADMIN_DIR = Path(__file__).resolve().parent / "admin"
+API_DOCUMENTATION_PATH = PROJECT_ROOT / "API_DOCUMENTATION.md"
 UPDATE_REMOTE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 UPDATE_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 DEFAULT_UPDATE_BRANCH = "main"
 
 if ADMIN_DIR.exists():
     app.mount("/admin/assets", StaticFiles(directory=ADMIN_DIR), name="admin-assets")
+
 
 
 @app.get("/", include_in_schema=False)
@@ -146,6 +162,17 @@ async def require_temp(access: Annotated[AccessContext, Depends(require_token)])
     return access
 
 
+
+
+@app.get("/api-documentation", include_in_schema=False, dependencies=[Depends(require_admin)])
+async def api_documentation():
+    if not API_DOCUMENTATION_PATH.exists():
+        raise HTTPException(status_code=404, detail="api documentation not found")
+    return FileResponse(
+        API_DOCUMENTATION_PATH,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 def _sanitize_git_remote(value: str) -> str:
     if "://" not in value:
@@ -184,6 +211,24 @@ def _git_required(args: list[str], timeout: int = 90) -> dict[str, Any]:
     return result
 
 
+def _running_git_identity() -> dict[str, str]:
+    global RUNNING_COMMIT_SHORT, RUNNING_COMMIT_FULL
+    if RUNNING_COMMIT_SHORT is None:
+        short = _git_result(["rev-parse", "--short", "HEAD"])
+        RUNNING_COMMIT_SHORT = short["stdout"] if short["ok"] else ""
+    if RUNNING_COMMIT_FULL is None:
+        full = _git_result(["rev-parse", "HEAD"])
+        RUNNING_COMMIT_FULL = full["stdout"] if full["ok"] else ""
+    return {"short": RUNNING_COMMIT_SHORT or "", "full": RUNNING_COMMIT_FULL or ""}
+
+
+def _ensure_update_lock() -> asyncio.Lock:
+    global update_lock
+    if update_lock is None:
+        update_lock = asyncio.Lock()
+    return update_lock
+
+
 def _resolve_update_branch(raw_branch: Any, fallback: str = DEFAULT_UPDATE_BRANCH) -> str:
     branch = str(raw_branch or "").strip()
     if not branch or branch == "HEAD":
@@ -195,22 +240,37 @@ def _git_status_payload() -> dict[str, Any]:
     if not (PROJECT_ROOT / ".git").exists():
         return {"available": False, "root": str(PROJECT_ROOT), "message": ".git directory is missing"}
     branch = _git_result(["rev-parse", "--abbrev-ref", "HEAD"])
-    commit = _git_result(["rev-parse", "--short", "HEAD"])
+    disk_commit = _git_result(["rev-parse", "--short", "HEAD"])
+    disk_commit_full = _git_result(["rev-parse", "HEAD"])
     remote = _git_result(["config", "--get", "remote.origin.url"])
     dirty = _git_result(["status", "--porcelain"])
+    running = _running_git_identity()
     return {
         "available": True,
         "root": str(PROJECT_ROOT),
         "branch": branch["stdout"] if branch["ok"] else "",
-        "commit": commit["stdout"] if commit["ok"] else "",
+        "commit": running["short"] or (disk_commit["stdout"] if disk_commit["ok"] else ""),
+        "running_commit": running["short"],
+        "running_commit_full": running["full"],
+        "disk_commit": disk_commit["stdout"] if disk_commit["ok"] else "",
+        "disk_commit_full": disk_commit_full["stdout"] if disk_commit_full["ok"] else "",
         "remote": _sanitize_git_remote(remote["stdout"]) if remote["ok"] else "",
         "dirty": bool(dirty["stdout"]) if dirty["ok"] else None,
     }
 
 
-async def _restart_current_process(delay_seconds: float = 1.0) -> None:
+async def _restart_current_process(delay_seconds: float = 1.0, method: str = "exit") -> None:
     await asyncio.sleep(delay_seconds)
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    if method == "execv":
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+    os._exit(0)
+
+
 def _json(data: dict | list, status_code: int = 200) -> JSONResponse:
     return JSONResponse(content=data, status_code=status_code)
 
@@ -705,7 +765,7 @@ async def admin_update_status(
     if not status.get("available") or not check_remote:
         return status
 
-    assert update_lock is not None
+    lock = _ensure_update_lock()
     remote = str(remote or "origin").strip()
     branch = _resolve_update_branch(branch or status.get("branch"))
     if not UPDATE_REMOTE_RE.fullmatch(remote):
@@ -713,11 +773,12 @@ async def admin_update_status(
     if not UPDATE_BRANCH_RE.fullmatch(branch) or branch.startswith("-") or ".." in branch:
         raise HTTPException(status_code=400, detail="invalid git branch name")
 
-    async with update_lock:
+    async with lock:
         await asyncio.to_thread(_git_required, ["fetch", "--prune", remote, branch], 180)
         remote_ref = f"{remote}/{branch}"
         remote_commit = _git_result(["rev-parse", "--short", remote_ref])
-        counts = _git_result(["rev-list", "--left-right", "--count", f"HEAD...{remote_ref}"])
+        compare_ref = status.get("running_commit_full") or "HEAD"
+        counts = _git_result(["rev-list", "--left-right", "--count", f"{compare_ref}...{remote_ref}"])
         ahead = behind = 0
         if counts["ok"] and counts["stdout"]:
             parts = counts["stdout"].split()
@@ -742,12 +803,15 @@ async def admin_update(
     request: Request,
     access: Annotated[AccessContext, Depends(require_admin)],
 ):
-    assert update_lock is not None
+    lock = _ensure_update_lock()
     payload = await _request_payload(request)
     remote = str(payload.get("remote") or "origin").strip()
     current = _git_status_payload()
     branch = _resolve_update_branch(payload.get("branch") or current.get("branch"))
     restart = str(payload.get("restart") or "true").strip().lower() not in {"0", "false", "no", "off"}
+    restart_method = str(payload.get("restart_method") or "exit").strip().lower()
+    if restart_method not in {"exit", "execv"}:
+        raise HTTPException(status_code=400, detail="invalid restart method")
 
     if not current.get("available"):
         raise HTTPException(status_code=409, detail="git metadata is missing; redeploy once with the new Dockerfile first")
@@ -756,15 +820,31 @@ async def admin_update(
     if not UPDATE_BRANCH_RE.fullmatch(branch) or branch.startswith("-") or ".." in branch:
         raise HTTPException(status_code=400, detail="invalid git branch name")
 
-    async with update_lock:
-        before = _git_required(["rev-parse", "--short", "HEAD"])["stdout"]
+    async with lock:
+        before = current.get("running_commit") or _git_required(["rev-parse", "--short", "HEAD"])["stdout"]
+        disk_before = _git_required(["rev-parse", "--short", "HEAD"])["stdout"]
         await asyncio.to_thread(_git_required, ["fetch", "--prune", remote, branch], 180)
-        await asyncio.to_thread(_git_required, ["reset", "--hard", f"{remote}/{branch}"], 90)
+        remote_ref = f"{remote}/{branch}"
+        await asyncio.to_thread(_git_required, ["checkout", "-B", branch, remote_ref], 90)
+        await asyncio.to_thread(_git_required, ["reset", "--hard", remote_ref], 90)
         after = _git_required(["rev-parse", "--short", "HEAD"])["stdout"]
         status = _git_status_payload()
+        changed = before != after
         if restart:
-            asyncio.create_task(_restart_current_process())
-        return {"ok": True, "before": before, "after": after, "branch": branch, "restart": restart, "status": status}
+            asyncio.create_task(_restart_current_process(method=restart_method))
+        return {
+            "ok": True,
+            "before": before,
+            "after": after,
+            "disk_before": disk_before,
+            "changed": changed,
+            "branch": branch,
+            "restart": restart,
+            "restart_method": restart_method,
+            "status": status,
+        }
+
+
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/", include_in_schema=False)
 async def admin_panel():

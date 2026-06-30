@@ -1355,6 +1355,30 @@ textarea:focus {
   gap: 14px;
 }
 
+
+.docs-entry-panel {
+  max-width: 720px;
+}
+
+.docs-entry {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+
+.docs-entry p {
+  max-width: 620px;
+  margin: 0;
+  color: #46535b;
+  line-height: 1.65;
+}
+
+.docs-open-button {
+  min-width: 168px;
+  min-height: 42px;
+  text-decoration: none;
+}
+
 .docs-panel {
   display: grid;
   align-content: start;
