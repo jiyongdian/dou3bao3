@@ -303,10 +303,8 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
   function buildPayload({localConversationId}) {
     const collectionId = uuid();
     const uniqueKey = uuid();
-    const imageUrls = (attachments || []).map(item => item && item.uri).filter(Boolean);
     const textParts = [prompt];
     if (ratio) textParts.push(ratio);
-    if (imageUrls.length) textParts.push("\u4f7f\u7528\u4e0a\u9762\u4e0a\u4f20\u7684\u56fe\u7247\u4f5c\u4e3a\u53c2\u8003\u56fe");
     const text = `\u751f\u6210\u89c6\u9891\uff1a${textParts.filter(Boolean).join("\uff0c")}`;
     const messages = [];
     if (attachments && attachments.length) {
@@ -414,7 +412,7 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
       },
       chat_ability: {
         ability_type: 17,
-        ability_param: JSON.stringify({ ratio, model, duration: Number(duration) })
+        ability_param: JSON.stringify({ ratio, model: "seedance_v2.0", duration: Number(duration) })
       },
       user_context: [],
       ext: {
