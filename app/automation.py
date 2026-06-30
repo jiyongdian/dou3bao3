@@ -34,24 +34,22 @@ IMAGEX_API_VERSION = "2018-08-01"
 PREPARE_UPLOAD_BODY = {"tenant_id": "5", "scene_id": "4", "resource_type": 2}
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
 )
 BROWSER_EXTRA_HTTP_HEADERS = {
-    "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+    "sec-ch-ua": '"Not-A.Brand";v="24", "Chromium";v="146"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
 }
 BROWSER_INIT_SCRIPT = r"""
 (() => {
   const brands = [
-    { brand: "Google Chrome", version: "149" },
-    { brand: "Chromium", version: "149" },
-    { brand: "Not)A;Brand", version: "24" }
+    { brand: "Not-A.Brand", version: "24" },
+    { brand: "Chromium", version: "146" }
   ];
   const fullVersionList = [
-    { brand: "Google Chrome", version: "149.0.0.0" },
-    { brand: "Chromium", version: "149.0.0.0" },
-    { brand: "Not)A;Brand", version: "24.0.0.0" }
+    { brand: "Not-A.Brand", version: "24.0.0.0" },
+    { brand: "Chromium", version: "146.0.0.0" }
   ];
   const userAgentData = {
     brands,
@@ -65,7 +63,7 @@ BROWSER_INIT_SCRIPT = r"""
         fullVersionList,
         model: "",
         platformVersion: "10.0.0",
-        uaFullVersion: "149.0.0.0",
+        uaFullVersion: "146.0.0.0",
         wow64: false
       };
       for (const hint of hints) {
@@ -101,6 +99,14 @@ async ({body}) => {
     for (let i = 0; i < len; i += 1) out += String(Math.floor(Math.random() * 10));
     return out.replace(/^0/, "1");
   }
+  function randomHex(len) {
+    const bytes = new Uint8Array(Math.ceil(len / 2));
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("").slice(0, len);
+  }
+  function flowTrace() {
+    return `04-${randomHex(32)}-${randomHex(16)}-01`;
+  }
   function cookieValue(name) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const m = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
@@ -119,24 +125,25 @@ async ({body}) => {
   }
   function buildQuery() {
     const fp = cookieValue("s_v_web_id") || storageFind(/s_v_web_id|fp|verify/i) || `verify_${randomDigits(12)}`;
-    const id = storageFind(/web_id|tea_uuid|device_id/i).replace(/\D/g, "").slice(0, 20) || `${Date.now()}${randomDigits(6)}`;
+    const webId = storageFind(/web_id|tea_uuid/i).replace(/\D/g, "").slice(0, 20) || `${Date.now()}${randomDigits(6)}`;
+    const deviceId = storageFind(/device_id|inner_did/i).replace(/\D/g, "").slice(0, 20) || webId;
     const region = cookieValue("flow_user_country") || "JP";
     const params = new URLSearchParams({
       aid: "495671",
-      device_id: id,
+      device_id: deviceId,
       device_platform: "web",
       fp,
       language: "zh",
-      pc_version: "3.23.7",
+      pc_version: "3.25.1",
       pkg_type: "release_version",
       real_aid: "495671",
       region,
       samantha_web: "1",
       sys_region: region,
-      tea_uuid: id,
+      tea_uuid: webId,
       "use-olympus-account": "1",
       version_code: "20800",
-      web_id: id,
+      web_id: webId,
       web_platform: "browser",
       web_tab_id: uuid()
     });
@@ -177,8 +184,10 @@ async ({body}) => {
     credentials: "include",
     headers: {
       "accept": "application/json, text/plain, */*",
+      "accept-language": "zh-CN,zh;q=0.9",
       "agw-js-conv": "str",
-      "content-type": "application/json"
+      "content-type": "application/json",
+      "x-flow-trace": flowTrace()
     },
     body: JSON.stringify(body)
   });
@@ -205,6 +214,14 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
     for (let i = 0; i < len; i += 1) out += String(Math.floor(Math.random() * 10));
     return out.replace(/^0/, "1");
   }
+  function randomHex(len) {
+    const bytes = new Uint8Array(Math.ceil(len / 2));
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("").slice(0, len);
+  }
+  function flowTrace() {
+    return `04-${randomHex(32)}-${randomHex(16)}-01`;
+  }
   function cookieValue(name) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const m = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
@@ -223,24 +240,25 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
   }
   function buildQuery() {
     const fp = cookieValue("s_v_web_id") || storageFind(/s_v_web_id|fp|verify/i) || `verify_${randomDigits(12)}`;
-    const id = storageFind(/web_id|tea_uuid|device_id/i).replace(/\D/g, "").slice(0, 20) || `${Date.now()}${randomDigits(6)}`;
+    const webId = storageFind(/web_id|tea_uuid/i).replace(/\D/g, "").slice(0, 20) || `${Date.now()}${randomDigits(6)}`;
+    const deviceId = storageFind(/device_id|inner_did/i).replace(/\D/g, "").slice(0, 20) || webId;
     const region = cookieValue("flow_user_country") || "JP";
     const params = new URLSearchParams({
       aid: "495671",
-      device_id: id,
+      device_id: deviceId,
       device_platform: "web",
       fp,
       language: "zh",
-      pc_version: "3.23.7",
+      pc_version: "3.25.1",
       pkg_type: "release_version",
       real_aid: "495671",
       region,
       samantha_web: "1",
       sys_region: region,
-      tea_uuid: id,
+      tea_uuid: webId,
       "use-olympus-account": "1",
       version_code: "20800",
-      web_id: id,
+      web_id: webId,
       web_platform: "browser",
       web_tab_id: uuid()
     });
@@ -285,7 +303,9 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
   function buildPayload({localConversationId}) {
     const collectionId = uuid();
     const uniqueKey = uuid();
-    const text = `生成视频：${prompt}${ratio ? `，${ratio}` : ""}${resolution ? `，${resolution}` : ""}${duration ? `，${duration}秒` : ""}`;
+    const textParts = [prompt];
+    if (ratio) textParts.push(ratio);
+    const text = `\u751f\u6210\u89c6\u9891\uff1a${textParts.filter(Boolean).join("\uff0c")}`;
     const messages = [];
     if (attachments && attachments.length) {
       messages.push({
@@ -363,6 +383,7 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
         is_regen: false,
         is_replace: false,
         is_from_click_option: false,
+        is_from_click_softlink: false,
         disable_sse_cache: false,
         select_text_action: "",
         is_select_text: false,
@@ -391,7 +412,7 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
       },
       chat_ability: {
         ability_type: 17,
-        ability_param: JSON.stringify({ ratio, model, duration: Number(duration), resolution })
+        ability_param: JSON.stringify({ ratio, model, duration: Number(duration) })
       },
       user_context: [],
       ext: {
@@ -418,9 +439,11 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
     credentials: "include",
     headers: {
       "accept": "*/*",
+      "accept-language": "zh-CN,zh;q=0.9",
       "agw-js-conv": "str, str",
       "content-type": "application/json",
-      "last-event-id": "undefined"
+      "last-event-id": "undefined",
+      "x-flow-trace": flowTrace()
     },
     body: JSON.stringify(buildPayload({localConversationId}))
   });
@@ -443,21 +466,28 @@ async ({prompt, ratio, duration, model, resolution, attachments}) => {
       if (done) break;
       const chunk = decoder.decode(value, {stream: true});
       text += chunk;
-      serviceFrequent = text.includes("服务访问频繁") || text.includes("当前服务访问频繁");
+      serviceFrequent = text.includes("鏈嶅姟璁块棶棰戠箒") || text.includes("褰撳墠鏈嶅姟璁块棶棰戠箒");
     }
     try { await reader.cancel(); } catch (_) {}
     try { text += decoder.decode(); } catch (_) {}
   } else {
     text = await response.text();
   }
-  serviceFrequent = serviceFrequent || text.includes("服务访问频繁") || text.includes("当前服务访问频繁") || text.includes("710022002");
-  const countryRestricted = text.includes("所在的国家/地区不可用") || text.includes("country restricted");
+  serviceFrequent = serviceFrequent || text.includes("鏈嶅姟璁块棶棰戠箒") || text.includes("褰撳墠鏈嶅姟璁块棶棰戠箒") || text.includes("710022002");
+  const countryRestricted = text.includes("country restricted");
   const conversationId = extractConversationId(text);
+  const requestParams = Object.fromEntries(params.entries());
   return {
     status: response.status,
     contentType: response.headers.get("content-type") || "",
     responseBytes: text.length,
     conversation_id: conversationId,
+    device_id: requestParams.device_id || "",
+    web_id: requestParams.web_id || "",
+    tea_uuid: requestParams.tea_uuid || "",
+    region: requestParams.region || "",
+    sys_region: requestParams.sys_region || "",
+    web_tab_id: requestParams.web_tab_id || "",
     sse_timed_out: timedOut,
     service_frequent: serviceFrequent,
     country_restricted: countryRestricted,
@@ -688,6 +718,12 @@ class DolaFetchAutomation:
                         "chat_content_type": result.get("contentType"),
                         "chat_response_bytes": int(result.get("responseBytes") or 0),
                         "sse_timed_out": bool(result.get("sse_timed_out")),
+                        "device_id": result.get("device_id") or "",
+                        "web_id": result.get("web_id") or "",
+                        "tea_uuid": result.get("tea_uuid") or "",
+                        "region": result.get("region") or "",
+                        "sys_region": result.get("sys_region") or "",
+                        "web_tab_id": result.get("web_tab_id") or "",
                     },
                 )
                 if result.get("service_frequent"):
