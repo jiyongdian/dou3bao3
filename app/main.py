@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 import re
 import subprocess
@@ -67,21 +68,56 @@ RUNNING_COMMIT_FULL = None
 
 IMAGE_FORM_KEYS = {
     "image",
+    "image[]",
     "images",
+    "images[]",
     "file",
     "files",
     "reference_image",
+    "reference_image[]",
     "reference_images",
+    "reference_images[]",
+    "input_reference",
+    "input_reference[]",
+    "input_references",
+    "input_references[]",
 }
 IMAGE_VALUE_KEYS = {
     "image",
+    "image[]",
     "images",
+    "images[]",
     "image_url",
     "image_urls",
     "input_image",
     "input_images",
     "reference_image",
+    "reference_image[]",
     "reference_images",
+    "reference_images[]",
+    "input_reference",
+    "input_reference[]",
+    "input_references",
+    "input_references[]",
+}
+
+VIVIDAI_IMAGE_MODELS = {
+    "gpt-image-2",
+    "imagine-1.5pro",
+    "imagine-1.5",
+    "flux-klein-2",
+    "seedream-4.5",
+    "nano-banana-2",
+    "flux-kontext-max",
+    "firefly-image-5",
+    "firefly-gpt-image-2",
+}
+VIVIDAI_VIDEO_MODELS = {
+    "grok-video",
+    "runway-gen4-turbo",
+    "firefly-video",
+    "firefly-ray",
+    "gemini-veo31",
 }
 
 
@@ -545,23 +581,35 @@ def _video_model_id() -> str:
     return load_settings().video_model
 
 
+def _known_model_ids() -> list[str]:
+    ids = [_video_model_id(), *sorted(VIVIDAI_VIDEO_MODELS), *sorted(VIVIDAI_IMAGE_MODELS)]
+    return list(dict.fromkeys(model for model in ids if model))
+
+
+def _model_kind(model_id: str) -> str:
+    if model_id in VIVIDAI_IMAGE_MODELS:
+        return "image"
+    return "video"
+
+
 def _model_body(model: str | None = None) -> dict[str, Any]:
     model_id = model or _video_model_id()
     return {
         "id": model_id,
         "object": "model",
         "created": 0,
-        "owned_by": "dola",
+        "owned_by": "vividai" if model_id in VIVIDAI_IMAGE_MODELS or model_id in VIVIDAI_VIDEO_MODELS else "dola",
         "root": model_id,
         "parent": None,
         "permission": [],
+        "type": _model_kind(model_id),
     }
 
 
 def _model_list() -> dict[str, Any]:
     return {
         "object": "list",
-        "data": [_model_body()],
+        "data": [_model_body(model_id) for model_id in _known_model_ids()],
     }
 
 
@@ -583,6 +631,37 @@ def _input_count(value: Any) -> int:
     if isinstance(value, list):
         return max(1, len(value))
     return 1
+
+
+def _ratio_from_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_RATIO
+    if text in VALID_RATIOS:
+        return text
+    size_match = re.fullmatch(r"(\d+)\s*[xX*]\s*(\d+)", text)
+    if size_match:
+        width = int(size_match.group(1))
+        height = int(size_match.group(2))
+        if width <= 0 or height <= 0:
+            return DEFAULT_RATIO
+        divisor = math.gcd(width, height)
+        ratio = f"{width // divisor}:{height // divisor}"
+        if ratio in VALID_RATIOS:
+            return ratio
+        if width == height:
+            return "1:1"
+        return "16:9" if width > height else "9:16"
+    lowered = text.lower()
+    if lowered in {"landscape", "horizontal"}:
+        return "16:9"
+    if lowered in {"portrait", "vertical"}:
+        return "9:16"
+    return DEFAULT_RATIO
+
+
+def _openai_ratio(payload: dict[str, Any]) -> str:
+    return _ratio_from_value(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size"))
 
 
 def _openai_response_body(
@@ -1041,7 +1120,7 @@ async def openai_models():
 @app.get("/v1/models/{model_id}")
 @app.get("/v1/v1/models/{model_id}")
 async def openai_model(model_id: str):
-    if model_id != _video_model_id():
+    if model_id not in _known_model_ids():
         return _openai_error(f"model '{model_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(model_id)
 
@@ -1057,7 +1136,7 @@ async def openai_engines():
 @app.get("/v1/engines/{engine_id}")
 @app.get("/v1/v1/engines/{engine_id}")
 async def openai_engine(engine_id: str):
-    if engine_id != _video_model_id():
+    if engine_id not in _known_model_ids():
         return _openai_error(f"engine '{engine_id}' is not available", status_code=404, code="model_not_found")
     return _model_body(engine_id)
 
@@ -1099,7 +1178,7 @@ async def openai_create_response(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
@@ -1126,7 +1205,7 @@ async def openai_chat_completions(
     prompt = _openai_prompt(payload)
     if not prompt:
         prompt = "test video generation"
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
@@ -1154,7 +1233,7 @@ async def openai_video_generations(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
@@ -1192,7 +1271,33 @@ async def openai_image_generations(
 ):
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
-    ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_RATIO).strip()
+    ratio = _openai_ratio(payload)
+    wait = _truthy(payload.get("wait"), False)
+    try:
+        timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="timeout_seconds must be an integer")
+    meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
+    if wait:
+        response = await _wait_openai_task(
+            access=access,
+            request=request,
+            task_id=meta["id"],
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+    return _image_generation_body(response)
+
+
+@app.post("/v1/images/edits", dependencies=[Depends(require_token)])
+async def openai_image_edits(
+    request: Request,
+    access: Annotated[AccessContext, Depends(require_token)],
+):
+    payload, uploads = await _openai_payload_and_uploads(request)
+    prompt = _openai_prompt(payload)
+    ratio = _openai_ratio(payload)
     wait = _truthy(payload.get("wait"), False)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
@@ -1260,7 +1365,7 @@ async def openai_videos(
             prompt = _openai_prompt(payload)
             if not prompt:
                 raise HTTPException(status_code=400, detail="input is required")
-            ratio = str(payload.get("ratio") or payload.get("aspect_ratio") or payload.get("size") or DEFAULT_RATIO).strip()
+            ratio = _openai_ratio(payload)
             meta = await _create_openai_task(access, prompt, ratio, uploads, _collect_image_refs(payload))
             response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
             return _video_task_body(response)
