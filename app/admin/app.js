@@ -591,7 +591,12 @@ async function applyHotUpdate() {
 }
 
 async function openApiDocumentation() {
-  const tab = window.open("", "_blank", "noopener");
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) {
+    toast("浏览器拦截了新窗口，请允许弹窗后重试", "error");
+    return;
+  }
+  tab.document.write("<!doctype html><title>API接口文档</title><body style=\"font-family: system-ui, sans-serif; padding: 24px;\">正在加载 API 接口文档...</body>");
   try {
     const response = await fetch("/api-documentation", {
       headers: { "X-API-Token": state.apiToken },
@@ -601,16 +606,34 @@ async function openApiDocumentation() {
       const text = await response.text();
       throw new Error(text || `HTTP ${response.status}`);
     }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    if (tab) {
-      tab.location.href = url;
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
+    const markdown = await response.text();
+    const html = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API接口文档</title>
+  <style>
+    body { margin: 0; background: #f6f8fa; color: #172026; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 28px 20px 48px; }
+    h1 { margin: 0 0 16px; font-size: 28px; }
+    pre { margin: 0; padding: 20px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; background: #ffffff; border: 1px solid #d7e0e5; border-radius: 8px; line-height: 1.65; font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>API接口文档</h1>
+    <pre>${escapeHtml(markdown)}</pre>
+  </main>
+</body>
+</html>`;
+    tab.document.open();
+    tab.document.write(html);
+    tab.document.close();
   } catch (error) {
-    if (tab) tab.close();
+    tab.document.open();
+    tab.document.write(`<!doctype html><title>文档打开失败</title><body style="font-family: system-ui, sans-serif; padding: 24px;"><h1>文档打开失败</h1><pre>${escapeHtml(error.message)}</pre></body>`);
+    tab.document.close();
     toast(`文档打开失败：${error.message}`, "error");
   }
 }
