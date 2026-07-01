@@ -62,7 +62,7 @@ Video parameter mapping:
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `model` | string | `seedance_v2.0` | 兼容 OpenAI 平台填写用，默认使用真实上游模型名；可通过 `DOLA_VIDEO_MODEL` 或 `OPENAI_MODEL` 环境变量覆盖 |
+| `model` | string | `seedance_v2.0` | 兼容 OpenAI 平台填写用；服务只对外暴露真实上游模型 `seedance_v2.0` |
 | `input` / `prompt` / `text` | string | 无 | 视频提示词 |
 | `ratio` / `aspect_ratio` | string | `9:16` | 支持 `1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
 | `wait` | boolean | `false` | 是否等待视频完成后再返回 |

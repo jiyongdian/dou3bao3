@@ -4,7 +4,7 @@ import asyncio
 from contextlib import suppress
 
 from .automation import DolaFetchAutomation
-from .config import load_settings
+from .config import load_settings, normalize_video_model
 from .memory import reclaim_memory_after_task
 from .store import (
     claim_next_pending,
@@ -76,7 +76,7 @@ class WorkerManager:
                     str(meta.get("prompt") or ""),
                     str(meta.get("ratio") or "9:16"),
                     duration=int(meta.get("video_duration") or 0) or None,
-                    model=str(meta.get("video_model") or ""),
+                    model=normalize_video_model(meta.get("video_model")),
                     resolution=str(meta.get("resolution") or ""),
                 )
                 success = await runner.run()

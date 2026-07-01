@@ -21,10 +21,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from .config import (
+    CANONICAL_VIDEO_MODEL,
     DEFAULT_RATIO,
     VALID_RATIOS,
     ensure_config,
     load_settings,
+    normalize_video_model,
     update_config,
     validate_proxy_api_scheme,
     validate_proxy_api_url,
@@ -575,7 +577,7 @@ def _openai_output_text(status: str, task_id: str, video_url: str, text: str) ->
 
 
 def _video_model_id() -> str:
-    return load_settings().video_model
+    return normalize_video_model(load_settings().video_model)
 
 
 def _known_model_ids() -> list[str]:
@@ -584,6 +586,16 @@ def _known_model_ids() -> list[str]:
 
 def _model_kind(model_id: str) -> str:
     return "video"
+
+
+def _validate_requested_model(payload: dict[str, Any]) -> str:
+    requested = str(payload.get("model") or "").strip()
+    if requested and requested != CANONICAL_VIDEO_MODEL:
+        raise HTTPException(
+            status_code=404,
+            detail=f"model '{requested}' is not available; use '{CANONICAL_VIDEO_MODEL}'",
+        )
+    return CANONICAL_VIDEO_MODEL
 
 
 def _model_body(model: str | None = None) -> dict[str, Any]:
@@ -712,9 +724,10 @@ def _video_resolution(payload: dict[str, Any]) -> str:
 
 
 def _video_options(payload: dict[str, Any], ratio: str) -> dict[str, Any]:
+    requested_model = _validate_requested_model(payload)
     options: dict[str, Any] = {
         "video_model": _video_model_id(),
-        "requested_model": str(payload.get("model") or "").strip(),
+        "requested_model": requested_model,
     }
     duration = _video_duration(payload)
     if duration is not None:
@@ -791,11 +804,16 @@ def _openai_response_body(
         created_at = int(time.time())
 
     video_url = ""
-    content_url = f"{base_url}/v1/videos/{task_id}/content"
+    content_url = ""
+    proxy_content_url = f"{base_url}/v1/videos/{task_id}/content"
+    task_url = f"{base_url}/tasks/{task_id}"
+    response_url = f"{base_url}/v1/responses/{task_id}"
+    video_status_url = f"{base_url}/v1/videos/{task_id}"
     error = None
     if code == "2" and result.get("url"):
         status = "completed"
-        video_url = content_url
+        video_url = str(result.get("url") or "")
+        content_url = proxy_content_url
     elif code == "1":
         status = "failed"
         error = {"message": str(result.get("text") or meta.get("error") or "video generation failed")}
@@ -808,6 +826,11 @@ def _openai_response_body(
         "object": "response",
         "created_at": created_at,
         "status": status,
+        "task_id": task_id,
+        "status_url": video_status_url,
+        "task_url": task_url,
+        "response_url": response_url,
+        "video_status_url": video_status_url,
         "model": _video_model_id(),
         "error": error,
         "output": [
@@ -822,7 +845,12 @@ def _openai_response_body(
             "id": task_id,
             "status": status,
             "url": video_url,
-            "content_url": video_url,
+            "content_url": content_url or video_url,
+            "proxy_content_url": proxy_content_url if video_url else "",
+            "status_url": video_status_url,
+            "task_url": task_url,
+            "response_url": response_url,
+            "video_status_url": video_status_url,
             "ratio": str(meta.get("ratio") or ""),
             "resolution": str(meta.get("resolution") or ""),
             "duration": meta.get("video_duration"),
@@ -832,11 +860,20 @@ def _openai_response_body(
 
 def _image_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     video = response.get("video") if isinstance(response.get("video"), dict) else {}
+    video_url = str(video.get("url") or "")
+    status_url = str(video.get("status_url") or response.get("status_url") or "")
     return {
         "created": int(response.get("created_at") or time.time()),
+        "id": str(response.get("id") or ""),
+        "task_id": str(response.get("task_id") or response.get("id") or ""),
+        "status": str(response.get("status") or ""),
+        "status_url": status_url,
         "data": [
             {
-                "url": str(video.get("url") or video.get("content_url") or ""),
+                "url": video_url,
+                "content_url": str(video.get("content_url") or video_url),
+                "status_url": status_url,
+                "task_id": str(response.get("task_id") or response.get("id") or ""),
                 "revised_prompt": f"video task {response.get('id')} is {response.get('status')}",
             }
         ],
@@ -846,6 +883,12 @@ def _image_generation_body(response: dict[str, Any]) -> dict[str, Any]:
 def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
     video = response.get("video") if isinstance(response.get("video"), dict) else {}
     video_url = str(video.get("url") or video.get("content_url") or "")
+    content_url = str(video.get("content_url") or video_url)
+    proxy_content_url = str(video.get("proxy_content_url") or content_url)
+    status_url = str(video.get("status_url") or response.get("status_url") or "")
+    task_url = str(video.get("task_url") or response.get("task_url") or status_url)
+    response_url = str(video.get("response_url") or response.get("response_url") or status_url)
+    video_status_url = str(video.get("video_status_url") or response.get("video_status_url") or status_url)
     task_id = str(response.get("id") or "")
     status = str(response.get("status") or "queued")
     body = {
@@ -858,15 +901,29 @@ def _video_generation_body(response: dict[str, Any]) -> dict[str, Any]:
         "model": str(response.get("model") or _video_model_id()),
         "status": status,
         "url": video_url,
-        "content_url": video_url,
+        "content_url": content_url,
+        "proxy_content_url": proxy_content_url if video_url else "",
+        "status_url": video_status_url,
+        "task_url": task_url,
+        "response_url": response_url,
+        "video_status_url": video_status_url,
         "video": {
             "id": task_id,
             "task_id": task_id,
             "status": status,
             "url": video_url,
-            "content_url": video_url,
+            "content_url": content_url,
+            "proxy_content_url": proxy_content_url if video_url else "",
+            "status_url": video_status_url,
+            "task_url": task_url,
+            "response_url": response_url,
+            "video_status_url": video_status_url,
         },
-        "data": [{"url": video_url}] if video_url else [],
+        "data": [
+            {"url": video_url, "content_url": content_url}
+        ] if video_url else [
+            {"status": status, "task_id": task_id, "status_url": video_status_url}
+        ],
     }
     if response.get("error"):
         body["error"] = response["error"]
@@ -910,6 +967,8 @@ def _chat_completion_body(response: dict[str, Any]) -> dict[str, Any]:
                 text = str(item.get("text") or "")
     if not text:
         text = f"video task {response.get('id')} is {response.get('status')}"
+    if response.get("status") not in {"completed", "failed"} and response.get("status_url"):
+        text = f"{text}\nstatus_url: {response.get('status_url')}"
     return {
         "id": f"chatcmpl-{response.get('id')}",
         "object": "chat.completion",
@@ -1304,7 +1363,7 @@ async def openai_create_response(
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
     ratio = _openai_ratio(payload)
-    wait = _truthy(payload.get("wait"), False)
+    wait = _truthy(payload.get("wait"), True)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
@@ -1339,7 +1398,7 @@ async def openai_chat_completions(
     if not prompt:
         prompt = "test video generation"
     ratio = _openai_ratio(payload)
-    wait = _truthy(payload.get("wait"), False)
+    wait = _truthy(payload.get("wait"), True)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
@@ -1375,7 +1434,7 @@ async def openai_video_generations(
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
     ratio = _openai_ratio(payload)
-    wait = _truthy(payload.get("wait"), False)
+    wait = _truthy(payload.get("wait"), True)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
@@ -1421,7 +1480,7 @@ async def openai_image_generations(
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
     ratio = _openai_ratio(payload)
-    wait = _truthy(payload.get("wait"), False)
+    wait = _truthy(payload.get("wait"), True)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
@@ -1455,7 +1514,7 @@ async def openai_image_edits(
     payload, uploads = await _openai_payload_and_uploads(request)
     prompt = _openai_prompt(payload)
     ratio = _openai_ratio(payload)
-    wait = _truthy(payload.get("wait"), False)
+    wait = _truthy(payload.get("wait"), True)
     try:
         timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
     except (TypeError, ValueError):
@@ -1540,7 +1599,20 @@ async def openai_videos(
                 _collect_image_refs(payload),
                 _fixed_reference_paths(prompt, payload),
             )
-            response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
+            wait = _truthy(payload.get("wait"), True)
+            if wait:
+                try:
+                    timeout_seconds = int(payload.get("timeout_seconds") or payload.get("max_wait_seconds") or 240)
+                except (TypeError, ValueError):
+                    timeout_seconds = 240
+                response = await _wait_openai_task(
+                    access=access,
+                    request=request,
+                    task_id=meta["id"],
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                response = _openai_response_body(request=request, task_id=meta["id"], meta=meta)
             return _video_task_body(response)
     task_id = str(
         id

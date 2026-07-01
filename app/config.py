@@ -22,7 +22,8 @@ TASKS_DIR = DATA_DIR / "tasks"
 RUNTIME_PATH = DATA_DIR / "runtime.json"
 
 TARGET_URL = "https://www.dola.com/chat/create-image"
-DEFAULT_VIDEO_MODEL = (os.environ.get("DOLA_VIDEO_MODEL") or os.environ.get("OPENAI_MODEL") or "seedance_v2.0").strip() or "seedance_v2.0"
+CANONICAL_VIDEO_MODEL = "seedance_v2.0"
+DEFAULT_VIDEO_MODEL = CANONICAL_VIDEO_MODEL
 VALID_RATIOS = {"1:1", "3:4", "4:3", "9:16", "16:9", "21:9"}
 DEFAULT_RATIO = "9:16"
 DEFAULT_PROXY_API_URL = os.environ.get(
@@ -38,6 +39,10 @@ DEFAULT_API_TOKEN = (
 VALID_PROXY_API_SCHEMES = {"http", "https"}
 VALID_PROXY_SERVER_SCHEMES = {"http", "https", "socks5", "socks5h"}
 _CONFIG_LOCK = threading.Lock()
+
+
+def normalize_video_model(_: Any = None) -> str:
+    return CANONICAL_VIDEO_MODEL
 
 
 def _read_mem_gb() -> float:
@@ -105,6 +110,9 @@ def _load_config_dict() -> dict[str, Any]:
     if DEFAULT_API_TOKEN and data.get("api_token") != DEFAULT_API_TOKEN:
         data["api_token"] = DEFAULT_API_TOKEN
         changed = True
+    if data.get("video_model") != CANONICAL_VIDEO_MODEL:
+        data["video_model"] = CANONICAL_VIDEO_MODEL
+        changed = True
     if not data.get("api_token"):
         data["api_token"] = secrets.token_urlsafe(32)
         changed = True
@@ -157,6 +165,7 @@ def update_config(updates: Mapping[str, Any]) -> dict[str, Any]:
         data.update(updates)
         if DEFAULT_API_TOKEN:
             data["api_token"] = DEFAULT_API_TOKEN
+        data["video_model"] = normalize_video_model(data.get("video_model"))
         if not data.get("api_token"):
             data["api_token"] = secrets.token_urlsafe(32)
 
@@ -214,7 +223,7 @@ def load_settings() -> Settings:
         headless=_as_bool(data.get("headless"), True),
         task_timeout_seconds=max(30, int(data.get("task_timeout_seconds") or 180)),
         video_duration=max(1, int(data.get("video_duration") or 15)),
-        video_model=str(data.get("video_model") or DEFAULT_VIDEO_MODEL).strip() or DEFAULT_VIDEO_MODEL,
+        video_model=normalize_video_model(data.get("video_model")),
         max_image_count=max(0, min(9, int(data.get("max_image_count") or 9))),
         proxy_api_url=str(data.get("proxy_api_url") or DEFAULT_PROXY_API_URL).strip(),
         proxy_api_scheme=proxy_api_scheme,
